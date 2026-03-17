@@ -3,10 +3,15 @@ import { describe, expect, it } from "vitest";
 import schema from "./schema";
 import { modules } from "./test.setup";
 
-async function seedDataSource(t: ReturnType<typeof convexTest>, userId = "user-1", provider: "garmin" | "strava" = "garmin") {
+async function seedDataSource(
+  t: ReturnType<typeof convexTest>,
+  userId = "user-1",
+  provider: "garmin" | "strava" = "garmin",
+) {
   return await t.run(async (ctx) => {
     return await ctx.db.insert("dataSources", {
-      userId, provider,
+      userId,
+      provider,
       deviceModel: "Forerunner 965",
       source: "garmin-api",
     });
@@ -21,10 +26,16 @@ describe("events", () => {
 
       const eventId = await t.run(async (ctx) => {
         return await ctx.db.insert("events", {
-          dataSourceId: dsId, userId: "user-1", category: "workout",
-          type: "running", startDatetime: 1710000000000,
-          endDatetime: 1710003600000, durationSeconds: 3600,
-          distance: 10000, heartRateAvg: 145, energyBurned: 750,
+          dataSourceId: dsId,
+          userId: "user-1",
+          category: "workout",
+          type: "running",
+          startDatetime: 1710000000000,
+          endDatetime: 1710003600000,
+          durationSeconds: 3600,
+          distance: 10000,
+          heartRateAvg: 145,
+          energyBurned: 750,
         });
       });
 
@@ -34,8 +45,10 @@ describe("events", () => {
         return await ctx.db.get(eventId);
       });
       expect(event).toMatchObject({
-        category: "workout", type: "running",
-        distance: 10000, heartRateAvg: 145,
+        category: "workout",
+        type: "running",
+        distance: 10000,
+        heartRateAvg: 145,
       });
     });
 
@@ -45,12 +58,18 @@ describe("events", () => {
 
       const eventId = await t.run(async (ctx) => {
         return await ctx.db.insert("events", {
-          dataSourceId: dsId, userId: "user-1",
-          category: "sleep", type: "night_sleep",
-          startDatetime: 1710010000000, endDatetime: 1710040000000,
-          sleepTotalDurationMinutes: 480, sleepDeepMinutes: 90,
-          sleepRemMinutes: 120, sleepLightMinutes: 200,
-          sleepAwakeMinutes: 70, sleepEfficiencyScore: 85.5,
+          dataSourceId: dsId,
+          userId: "user-1",
+          category: "sleep",
+          type: "night_sleep",
+          startDatetime: 1710010000000,
+          endDatetime: 1710040000000,
+          sleepTotalDurationMinutes: 480,
+          sleepDeepMinutes: 90,
+          sleepRemMinutes: 120,
+          sleepLightMinutes: 200,
+          sleepAwakeMinutes: 70,
+          sleepEfficiencyScore: 85.5,
           sleepStages: [
             { stage: "light", startTime: 1710010000000, endTime: 1710015000000 },
             { stage: "deep", startTime: 1710015000000, endTime: 1710020000000 },
@@ -73,9 +92,13 @@ describe("events", () => {
       // Insert first
       const id1 = await t.run(async (ctx) => {
         return await ctx.db.insert("events", {
-          dataSourceId: dsId, userId: "user-1", category: "workout",
-          type: "running", startDatetime: 1710000000000,
-          externalId: "strava-123", distance: 5000,
+          dataSourceId: dsId,
+          userId: "user-1",
+          category: "workout",
+          type: "running",
+          startDatetime: 1710000000000,
+          externalId: "strava-123",
+          distance: 5000,
         });
       });
 
@@ -104,16 +127,25 @@ describe("events", () => {
 
       await t.run(async (ctx) => {
         await ctx.db.insert("events", {
-          dataSourceId: dsId, userId: "user-1", category: "workout",
-          type: "running", startDatetime: 1710000000000,
+          dataSourceId: dsId,
+          userId: "user-1",
+          category: "workout",
+          type: "running",
+          startDatetime: 1710000000000,
         });
         await ctx.db.insert("events", {
-          dataSourceId: dsId, userId: "user-1", category: "workout",
-          type: "cycling", startDatetime: 1710100000000,
+          dataSourceId: dsId,
+          userId: "user-1",
+          category: "workout",
+          type: "cycling",
+          startDatetime: 1710100000000,
         });
         await ctx.db.insert("events", {
-          dataSourceId: dsId, userId: "user-1", category: "sleep",
-          type: "night_sleep", startDatetime: 1710050000000,
+          dataSourceId: dsId,
+          userId: "user-1",
+          category: "sleep",
+          type: "night_sleep",
+          startDatetime: 1710050000000,
         });
       });
 
@@ -135,16 +167,25 @@ describe("events", () => {
 
       await t.run(async (ctx) => {
         await ctx.db.insert("events", {
-          dataSourceId: dsId, userId: "user-1", category: "workout",
-          type: "running", startDatetime: 1710000000000,
+          dataSourceId: dsId,
+          userId: "user-1",
+          category: "workout",
+          type: "running",
+          startDatetime: 1710000000000,
         });
         await ctx.db.insert("events", {
-          dataSourceId: dsId, userId: "user-1", category: "workout",
-          type: "cycling", startDatetime: 1710100000000,
+          dataSourceId: dsId,
+          userId: "user-1",
+          category: "workout",
+          type: "cycling",
+          startDatetime: 1710100000000,
         });
         await ctx.db.insert("events", {
-          dataSourceId: dsId, userId: "user-1", category: "workout",
-          type: "swimming", startDatetime: 1710200000000,
+          dataSourceId: dsId,
+          userId: "user-1",
+          category: "workout",
+          type: "swimming",
+          startDatetime: 1710200000000,
         });
       });
 
@@ -152,7 +193,9 @@ describe("events", () => {
         return await ctx.db
           .query("events")
           .withIndex("by_user_category_time", (idx) =>
-            idx.eq("userId", "user-1").eq("category", "workout")
+            idx
+              .eq("userId", "user-1")
+              .eq("category", "workout")
               .gte("startDatetime", 1710050000000)
               .lte("startDatetime", 1710150000000),
           )
@@ -170,8 +213,11 @@ describe("events", () => {
       await t.run(async (ctx) => {
         for (let i = 0; i < 5; i++) {
           await ctx.db.insert("events", {
-            dataSourceId: dsId, userId: "user-1", category: "workout",
-            type: `run-${i}`, startDatetime: 1710000000000 + i * 100000,
+            dataSourceId: dsId,
+            userId: "user-1",
+            category: "workout",
+            type: `run-${i}`,
+            startDatetime: 1710000000000 + i * 100000,
           });
         }
       });
@@ -196,7 +242,9 @@ describe("events", () => {
         return await ctx.db
           .query("events")
           .withIndex("by_user_category_time", (idx) =>
-            idx.eq("userId", "user-1").eq("category", "workout")
+            idx
+              .eq("userId", "user-1")
+              .eq("category", "workout")
               .lt("startDatetime", page1[2].startDatetime),
           )
           .order("desc")
@@ -215,12 +263,18 @@ describe("events", () => {
 
       await t.run(async (ctx) => {
         await ctx.db.insert("events", {
-          dataSourceId: ds1, userId: "user-1", category: "workout",
-          type: "running", startDatetime: 1710000000000,
+          dataSourceId: ds1,
+          userId: "user-1",
+          category: "workout",
+          type: "running",
+          startDatetime: 1710000000000,
         });
         await ctx.db.insert("events", {
-          dataSourceId: ds2, userId: "user-2", category: "workout",
-          type: "cycling", startDatetime: 1710000000000,
+          dataSourceId: ds2,
+          userId: "user-2",
+          category: "workout",
+          type: "cycling",
+          startDatetime: 1710000000000,
         });
       });
 
@@ -253,8 +307,12 @@ describe("events", () => {
 
       await t.run(async (ctx) => {
         await ctx.db.insert("events", {
-          dataSourceId: dsId, userId: "user-1", category: "workout",
-          type: "cycling", startDatetime: 1710000000000, endDatetime: 1710003600000,
+          dataSourceId: dsId,
+          userId: "user-1",
+          category: "workout",
+          type: "cycling",
+          startDatetime: 1710000000000,
+          endDatetime: 1710003600000,
         });
       });
 
@@ -263,7 +321,8 @@ describe("events", () => {
         return await ctx.db
           .query("events")
           .withIndex("by_source_start_end", (idx) =>
-            idx.eq("dataSourceId", dsId)
+            idx
+              .eq("dataSourceId", dsId)
               .eq("startDatetime", 1710000000000)
               .eq("endDatetime", 1710003600000),
           )

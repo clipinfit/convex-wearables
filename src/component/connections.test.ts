@@ -11,10 +11,13 @@ describe("connections", () => {
 
       const id = await t.run(async (ctx) => {
         return await ctx.db.insert("connections", {
-          userId: "user-1", provider: "garmin",
-          accessToken: "access-token-123", refreshToken: "refresh-token-456",
+          userId: "user-1",
+          provider: "garmin",
+          accessToken: "access-token-123",
+          refreshToken: "refresh-token-456",
           tokenExpiresAt: Date.now() + 3600000,
-          providerUserId: "garmin-user-789", status: "active",
+          providerUserId: "garmin-user-789",
+          status: "active",
         });
       });
 
@@ -24,7 +27,8 @@ describe("connections", () => {
         return await ctx.db.get(id);
       });
       expect(conn).toMatchObject({
-        provider: "garmin", status: "active",
+        provider: "garmin",
+        status: "active",
         providerUserId: "garmin-user-789",
       });
     });
@@ -34,8 +38,10 @@ describe("connections", () => {
 
       const id = await t.run(async (ctx) => {
         return await ctx.db.insert("connections", {
-          userId: "user-1", provider: "strava",
-          accessToken: "old-token", status: "active",
+          userId: "user-1",
+          provider: "strava",
+          accessToken: "old-token",
+          status: "active",
         });
       });
 
@@ -71,16 +77,22 @@ describe("connections", () => {
 
       await t.run(async (ctx) => {
         await ctx.db.insert("connections", {
-          userId: "user-1", provider: "garmin",
-          accessToken: "t1", status: "active",
+          userId: "user-1",
+          provider: "garmin",
+          accessToken: "t1",
+          status: "active",
         });
         await ctx.db.insert("connections", {
-          userId: "user-1", provider: "strava",
-          accessToken: "t2", status: "active",
+          userId: "user-1",
+          provider: "strava",
+          accessToken: "t2",
+          status: "active",
         });
         await ctx.db.insert("connections", {
-          userId: "user-2", provider: "whoop",
-          accessToken: "t3", status: "active",
+          userId: "user-2",
+          provider: "whoop",
+          accessToken: "t3",
+          status: "active",
         });
       });
 
@@ -102,12 +114,16 @@ describe("connections", () => {
 
       await t.run(async (ctx) => {
         await ctx.db.insert("connections", {
-          userId: "user-1", provider: "garmin",
-          accessToken: "t1", status: "active",
+          userId: "user-1",
+          provider: "garmin",
+          accessToken: "t1",
+          status: "active",
         });
         await ctx.db.insert("connections", {
-          userId: "user-1", provider: "strava",
-          accessToken: "t2", status: "active",
+          userId: "user-1",
+          provider: "strava",
+          accessToken: "t2",
+          status: "active",
         });
       });
 
@@ -160,12 +176,16 @@ describe("connections", () => {
 
       await t.run(async (ctx) => {
         await ctx.db.insert("connections", {
-          userId: "user-1", provider: "garmin",
-          accessToken: "t1", status: "active",
+          userId: "user-1",
+          provider: "garmin",
+          accessToken: "t1",
+          status: "active",
         });
         await ctx.db.insert("connections", {
-          userId: "user-2", provider: "strava",
-          accessToken: "t2", status: "inactive",
+          userId: "user-2",
+          provider: "strava",
+          accessToken: "t2",
+          status: "inactive",
         });
       });
 
@@ -245,8 +265,10 @@ describe("connections", () => {
 
       const id = await t.run(async (ctx) => {
         return await ctx.db.insert("connections", {
-          userId: "user-1", provider: "whoop",
-          accessToken: "secret", refreshToken: "secret-r",
+          userId: "user-1",
+          provider: "whoop",
+          accessToken: "secret",
+          refreshToken: "secret-r",
           status: "active",
         });
       });

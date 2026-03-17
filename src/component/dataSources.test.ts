@@ -74,9 +74,7 @@ describe("dataSources", () => {
     const stravaSources = await t.run(async (ctx) => {
       return await ctx.db
         .query("dataSources")
-        .withIndex("by_user_provider", (idx) =>
-          idx.eq("userId", "user-1").eq("provider", "strava"),
-        )
+        .withIndex("by_user_provider", (idx) => idx.eq("userId", "user-1").eq("provider", "strava"))
         .collect();
     });
 
@@ -149,9 +147,7 @@ describe("dataSources", () => {
     const sources = await t.run(async (ctx) => {
       return await ctx.db
         .query("dataSources")
-        .withIndex("by_user_provider", (idx) =>
-          idx.eq("userId", "user-1").eq("provider", "garmin"),
-        )
+        .withIndex("by_user_provider", (idx) => idx.eq("userId", "user-1").eq("provider", "garmin"))
         .collect();
     });
 

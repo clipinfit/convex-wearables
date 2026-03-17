@@ -5,11 +5,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import {
-  generateRandomString,
-  generateCodeChallenge,
-  buildAuthorizationUrl,
-} from "./oauth";
+import { buildAuthorizationUrl, generateCodeChallenge, generateRandomString } from "./oauth";
 import type { OAuthProviderConfig } from "./types";
 
 // ---------------------------------------------------------------------------

@@ -11,30 +11,47 @@ describe("lifecycle", () => {
       // Seed user-1 data
       const { connId, dsId } = await t.run(async (ctx) => {
         const connId = await ctx.db.insert("connections", {
-          userId: "user-1", provider: "garmin",
-          accessToken: "token", status: "active",
+          userId: "user-1",
+          provider: "garmin",
+          accessToken: "token",
+          status: "active",
         });
         const dsId = await ctx.db.insert("dataSources", {
-          userId: "user-1", provider: "garmin", connectionId: connId,
+          userId: "user-1",
+          provider: "garmin",
+          connectionId: connId,
         });
         await ctx.db.insert("dataPoints", {
-          dataSourceId: dsId, seriesType: "heart_rate",
-          recordedAt: 1710000000000, value: 72,
+          dataSourceId: dsId,
+          seriesType: "heart_rate",
+          recordedAt: 1710000000000,
+          value: 72,
         });
         await ctx.db.insert("events", {
-          dataSourceId: dsId, userId: "user-1", category: "workout",
-          type: "running", startDatetime: 1710000000000,
+          dataSourceId: dsId,
+          userId: "user-1",
+          category: "workout",
+          type: "running",
+          startDatetime: 1710000000000,
         });
         await ctx.db.insert("dailySummaries", {
-          userId: "user-1", date: "2026-03-15", category: "activity",
+          userId: "user-1",
+          date: "2026-03-15",
+          category: "activity",
           totalSteps: 10000,
         });
         await ctx.db.insert("syncJobs", {
-          userId: "user-1", status: "completed", startedAt: 1710000000000,
+          userId: "user-1",
+          status: "completed",
+          startedAt: 1710000000000,
         });
         await ctx.db.insert("backfillJobs", {
-          connectionId: connId, userId: "user-1", provider: "garmin",
-          dataType: "dailies", status: "completed", startedAt: 1710000000000,
+          connectionId: connId,
+          userId: "user-1",
+          provider: "garmin",
+          dataType: "dailies",
+          status: "completed",
+          startedAt: 1710000000000,
         });
         return { connId, dsId };
       });
@@ -42,15 +59,22 @@ describe("lifecycle", () => {
       // Seed user-2 data (should NOT be deleted)
       await t.run(async (ctx) => {
         const c2 = await ctx.db.insert("connections", {
-          userId: "user-2", provider: "strava",
-          accessToken: "token-2", status: "active",
+          userId: "user-2",
+          provider: "strava",
+          accessToken: "token-2",
+          status: "active",
         });
         const ds2 = await ctx.db.insert("dataSources", {
-          userId: "user-2", provider: "strava", connectionId: c2,
+          userId: "user-2",
+          provider: "strava",
+          connectionId: c2,
         });
         await ctx.db.insert("events", {
-          dataSourceId: ds2, userId: "user-2", category: "workout",
-          type: "cycling", startDatetime: 1710000000000,
+          dataSourceId: ds2,
+          userId: "user-2",
+          category: "workout",
+          type: "cycling",
+          startDatetime: 1710000000000,
         });
       });
 

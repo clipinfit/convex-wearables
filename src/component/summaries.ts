@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { query, internalQuery, internalMutation } from "./_generated/server";
+import { internalMutation, internalQuery, query } from "./_generated/server";
 
 // ---------------------------------------------------------------------------
 // Queries
@@ -43,9 +43,7 @@ export const getByUserDate = internalQuery({
   handler: async (ctx, args) => {
     return await ctx.db
       .query("dailySummaries")
-      .withIndex("by_user_date", (idx) =>
-        idx.eq("userId", args.userId).eq("date", args.date),
-      )
+      .withIndex("by_user_date", (idx) => idx.eq("userId", args.userId).eq("date", args.date))
       .collect();
   },
 });

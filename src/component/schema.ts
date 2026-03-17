@@ -29,10 +29,7 @@ export const connectionStatus = v.union(
 /**
  * Event category — top-level classification.
  */
-export const eventCategory = v.union(
-  v.literal("workout"),
-  v.literal("sleep"),
-);
+export const eventCategory = v.union(v.literal("workout"), v.literal("sleep"));
 
 /**
  * Sync job status.
@@ -93,12 +90,7 @@ export default defineSchema({
     originalSourceName: v.optional(v.string()),
   })
     .index("by_user_provider", ["userId", "provider"])
-    .index("by_user_provider_device", [
-      "userId",
-      "provider",
-      "deviceModel",
-      "source",
-    ])
+    .index("by_user_provider_device", ["userId", "provider", "deviceModel", "source"])
     .index("by_connection", ["connectionId"]),
 
   // -------------------------------------------------------------------------
@@ -164,16 +156,8 @@ export default defineSchema({
     ),
   })
     .index("by_user_category_time", ["userId", "category", "startDatetime"])
-    .index("by_source_category_time", [
-      "dataSourceId",
-      "category",
-      "startDatetime",
-    ])
-    .index("by_source_start_end", [
-      "dataSourceId",
-      "startDatetime",
-      "endDatetime",
-    ])
+    .index("by_source_category_time", ["dataSourceId", "category", "startDatetime"])
+    .index("by_source_start_end", ["dataSourceId", "startDatetime", "endDatetime"])
     .index("by_external_id", ["externalId"]),
 
   // -------------------------------------------------------------------------

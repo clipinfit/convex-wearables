@@ -3,10 +3,15 @@ import { describe, expect, it } from "vitest";
 import schema from "./schema";
 import { modules } from "./test.setup";
 
-async function seedDataSource(t: ReturnType<typeof convexTest>, userId = "user-1", provider: "garmin" | "strava" = "garmin") {
+async function seedDataSource(
+  t: ReturnType<typeof convexTest>,
+  userId = "user-1",
+  provider: "garmin" | "strava" = "garmin",
+) {
   return await t.run(async (ctx) => {
     return await ctx.db.insert("dataSources", {
-      userId, provider,
+      userId,
+      provider,
       deviceModel: "Forerunner 965",
       source: "garmin-api",
     });
@@ -21,8 +26,10 @@ describe("dataPoints", () => {
 
       await t.run(async (ctx) => {
         await ctx.db.insert("dataPoints", {
-          dataSourceId: dsId, seriesType: "heart_rate",
-          recordedAt: 1710000000000, value: 72,
+          dataSourceId: dsId,
+          seriesType: "heart_rate",
+          recordedAt: 1710000000000,
+          value: 72,
         });
       });
 
@@ -45,8 +52,10 @@ describe("dataPoints", () => {
 
       await t.run(async (ctx) => {
         await ctx.db.insert("dataPoints", {
-          dataSourceId: dsId, seriesType: "heart_rate",
-          recordedAt: 1710000000000, value: 72,
+          dataSourceId: dsId,
+          seriesType: "heart_rate",
+          recordedAt: 1710000000000,
+          value: 72,
         });
       });
 
@@ -55,7 +64,9 @@ describe("dataPoints", () => {
         const existing = await ctx.db
           .query("dataPoints")
           .withIndex("by_source_type_time", (idx) =>
-            idx.eq("dataSourceId", dsId).eq("seriesType", "heart_rate")
+            idx
+              .eq("dataSourceId", dsId)
+              .eq("seriesType", "heart_rate")
               .eq("recordedAt", 1710000000000),
           )
           .first();
@@ -86,8 +97,10 @@ describe("dataPoints", () => {
       await t.run(async (ctx) => {
         for (let i = 0; i < 10; i++) {
           await ctx.db.insert("dataPoints", {
-            dataSourceId: dsId, seriesType: "heart_rate",
-            recordedAt: 1710000000000 + i * 60000, value: 70 + i,
+            dataSourceId: dsId,
+            seriesType: "heart_rate",
+            recordedAt: 1710000000000 + i * 60000,
+            value: 70 + i,
           });
         }
       });
@@ -96,7 +109,9 @@ describe("dataPoints", () => {
         return await ctx.db
           .query("dataPoints")
           .withIndex("by_source_type_time", (idx) =>
-            idx.eq("dataSourceId", dsId).eq("seriesType", "heart_rate")
+            idx
+              .eq("dataSourceId", dsId)
+              .eq("seriesType", "heart_rate")
               .gte("recordedAt", 1710000000000)
               .lte("recordedAt", 1710000300000),
           )
@@ -115,8 +130,10 @@ describe("dataPoints", () => {
       await t.run(async (ctx) => {
         for (let i = 0; i < 20; i++) {
           await ctx.db.insert("dataPoints", {
-            dataSourceId: dsId, seriesType: "steps",
-            recordedAt: 1710000000000 + i * 60000, value: 100 + i,
+            dataSourceId: dsId,
+            seriesType: "steps",
+            recordedAt: 1710000000000 + i * 60000,
+            value: 100 + i,
           });
         }
       });
@@ -125,7 +142,9 @@ describe("dataPoints", () => {
         return await ctx.db
           .query("dataPoints")
           .withIndex("by_source_type_time", (idx) =>
-            idx.eq("dataSourceId", dsId).eq("seriesType", "steps")
+            idx
+              .eq("dataSourceId", dsId)
+              .eq("seriesType", "steps")
               .gte("recordedAt", 1710000000000)
               .lte("recordedAt", 1710001200000),
           )
@@ -140,7 +159,9 @@ describe("dataPoints", () => {
         return await ctx.db
           .query("dataPoints")
           .withIndex("by_source_type_time", (idx) =>
-            idx.eq("dataSourceId", dsId).eq("seriesType", "steps")
+            idx
+              .eq("dataSourceId", dsId)
+              .eq("seriesType", "steps")
               .gt("recordedAt", lastTime)
               .lte("recordedAt", 1710001200000),
           )
@@ -157,12 +178,16 @@ describe("dataPoints", () => {
 
       await t.run(async (ctx) => {
         await ctx.db.insert("dataPoints", {
-          dataSourceId: dsId, seriesType: "heart_rate",
-          recordedAt: 1710000000000, value: 72,
+          dataSourceId: dsId,
+          seriesType: "heart_rate",
+          recordedAt: 1710000000000,
+          value: 72,
         });
         await ctx.db.insert("dataPoints", {
-          dataSourceId: dsId, seriesType: "steps",
-          recordedAt: 1710000000000, value: 150,
+          dataSourceId: dsId,
+          seriesType: "steps",
+          recordedAt: 1710000000000,
+          value: 150,
         });
       });
 
@@ -197,12 +222,16 @@ describe("dataPoints", () => {
 
       await t.run(async (ctx) => {
         await ctx.db.insert("dataPoints", {
-          dataSourceId: dsId, seriesType: "weight",
-          recordedAt: 1710000000000, value: 80.5,
+          dataSourceId: dsId,
+          seriesType: "weight",
+          recordedAt: 1710000000000,
+          value: 80.5,
         });
         await ctx.db.insert("dataPoints", {
-          dataSourceId: dsId, seriesType: "weight",
-          recordedAt: 1710100000000, value: 80.2,
+          dataSourceId: dsId,
+          seriesType: "weight",
+          recordedAt: 1710100000000,
+          value: 80.2,
         });
       });
 
@@ -230,8 +259,10 @@ describe("dataPoints", () => {
       await t.run(async (ctx) => {
         for (let i = 0; i < 10; i++) {
           await ctx.db.insert("dataPoints", {
-            dataSourceId: dsId, seriesType: "heart_rate",
-            recordedAt: 1710000000000 + i * 60000, value: 70 + i,
+            dataSourceId: dsId,
+            seriesType: "heart_rate",
+            recordedAt: 1710000000000 + i * 60000,
+            value: 70 + i,
           });
         }
       });

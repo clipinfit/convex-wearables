@@ -18,12 +18,7 @@ export type ProviderName =
   | "samsung"
   | "google";
 
-export type ConnectionStatus =
-  | "active"
-  | "inactive"
-  | "revoked"
-  | "expired"
-  | "error";
+export type ConnectionStatus = "active" | "inactive" | "revoked" | "expired" | "error";
 
 export type EventCategory = "workout" | "sleep";
 

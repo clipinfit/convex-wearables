@@ -1,10 +1,5 @@
 import { v } from "convex/values";
-import {
-  query,
-  mutation,
-  internalQuery,
-  internalMutation,
-} from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { providerName, syncJobStatus } from "./schema";
 
 // ---------------------------------------------------------------------------
@@ -81,8 +76,7 @@ export const updateStatus = internalMutation({
   handler: async (ctx, args) => {
     const updates: Record<string, unknown> = { status: args.status };
     if (args.error !== undefined) updates.error = args.error;
-    if (args.recordsProcessed !== undefined)
-      updates.recordsProcessed = args.recordsProcessed;
+    if (args.recordsProcessed !== undefined) updates.recordsProcessed = args.recordsProcessed;
     if (args.status === "completed" || args.status === "failed") {
       updates.completedAt = Date.now();
     }

@@ -1,3 +1,4 @@
+import { makeAuthenticatedRequest } from "./oauth";
 import type {
   NormalizedDailySummary,
   NormalizedDataPoint,
@@ -7,11 +8,11 @@ import type {
   ProviderCredentials,
   ProviderUserInfo,
 } from "./types";
-import { makeAuthenticatedRequest } from "./oauth";
 
 const API_BASE = "https://api.prod.whoop.com";
 const WHOOP_PER_PAGE = 25;
-const WHOOP_SCOPE = "offline read:workout read:sleep read:recovery read:body_measurement read:profile";
+const WHOOP_SCOPE =
+  "offline read:workout read:sleep read:recovery read:body_measurement read:profile";
 
 interface WhoopWorkoutScore {
   average_heart_rate?: number;
@@ -111,7 +112,7 @@ const WHOOP_TYPE_MAP: Record<string, string> = {
   sailing: "sailing",
   diving: "diving",
   "water skiing": "surfing",
-  "wakeboarding": "surfing",
+  wakeboarding: "surfing",
   "kite boarding": "kitesurfing",
   "operations - water": "other",
   weightlifting: "strength_training",
@@ -201,8 +202,8 @@ const WHOOP_TYPE_MAP: Record<string, string> = {
   commuting: "other",
   gaming: "other",
   "yard work": "other",
-  "cooking": "other",
-  "cleaning": "other",
+  cooking: "other",
+  cleaning: "other",
   "public speaking": "other",
   "musical performance": "other",
   "dedicated parenting": "other",
@@ -235,13 +236,10 @@ function normalizeWorkout(workout: WhoopWorkout): NormalizedEvent {
   const score = workout.score;
   const durationSeconds = Math.max(Math.floor((end - start) / 1000), 0);
 
-  const energy =
-    score?.kilojoule !== undefined
-      ? score.kilojoule * 0.239
-      : undefined;
+  const energy = score?.kilojoule !== undefined ? score.kilojoule * 0.239 : undefined;
 
   const type = workout.sport_name
-    ? WHOOP_TYPE_MAP[workout.sport_name.toLowerCase()] ?? "other"
+    ? (WHOOP_TYPE_MAP[workout.sport_name.toLowerCase()] ?? "other")
     : "other";
 
   return {
@@ -267,24 +265,13 @@ function normalizeSleep(record: WhoopSleep): NormalizedEvent {
   const start = parseTimestamp(record.start) ?? 0;
   const end = parseTimestamp(record.end) ?? start;
   const stage = record.score?.stage_summary;
-  const timeInBedMinutes = Math.round(
-    (stage?.total_in_bed_time_milli ?? end - start) / 60000,
-  );
-  const awakeMinutes = Math.round(
-    (stage?.total_awake_time_milli ?? 0) / 60000,
-  );
-  const deepMinutes = Math.round(
-    (stage?.total_slow_wave_sleep_time_milli ?? 0) / 60000,
-  );
-  const remMinutes = Math.round(
-    (stage?.total_rem_sleep_time_milli ?? 0) / 60000,
-  );
-  const lightMinutes = Math.round(
-    (stage?.total_light_sleep_time_milli ?? 0) / 60000,
-  );
+  const timeInBedMinutes = Math.round((stage?.total_in_bed_time_milli ?? end - start) / 60000);
+  const awakeMinutes = Math.round((stage?.total_awake_time_milli ?? 0) / 60000);
+  const deepMinutes = Math.round((stage?.total_slow_wave_sleep_time_milli ?? 0) / 60000);
+  const remMinutes = Math.round((stage?.total_rem_sleep_time_milli ?? 0) / 60000);
+  const lightMinutes = Math.round((stage?.total_light_sleep_time_milli ?? 0) / 60000);
   const totalSleepMinutes =
-    deepMinutes + remMinutes + lightMinutes ||
-    Math.max(timeInBedMinutes - awakeMinutes, 0);
+    deepMinutes + remMinutes + lightMinutes || Math.max(timeInBedMinutes - awakeMinutes, 0);
 
   return {
     category: "sleep",
@@ -392,18 +379,13 @@ async function fetchPaged<T extends { records?: unknown; next_token?: string; ne
   let nextToken: string | undefined;
 
   while (true) {
-    const response = await makeAuthenticatedRequest<T>(
-      API_BASE,
-      endpoint,
-      accessToken,
-      {
-        params: buildUrlParams({
-          ...params,
-          limit: String(WHOOP_PER_PAGE),
-          nextToken,
-        }),
-      },
-    );
+    const response = await makeAuthenticatedRequest<T>(API_BASE, endpoint, accessToken, {
+      params: buildUrlParams({
+        ...params,
+        limit: String(WHOOP_PER_PAGE),
+        nextToken,
+      }),
+    });
 
     all.push(response);
     nextToken = response.next_token ?? response.nextToken;
@@ -552,21 +534,20 @@ function aggregateDailySummaries(
   const recoverySummaries: NormalizedDailySummary[] = [];
   for (const [date, data] of recoveryByDate.entries()) {
     const summary: NormalizedDailySummary = { date, category: "recovery" };
-    const average = (list: number[]) => (list.length ? list.reduce((a, b) => a + b, 0) / list.length : undefined);
+    const average = (list: number[]) =>
+      list.length ? list.reduce((a, b) => a + b, 0) / list.length : undefined;
 
-    summary.recoveryScore = average(data.counts["recovery_score"] ?? []);
-    summary.restingHeartRate = average(data.counts["resting_heart_rate"] ?? []);
-    summary.hrvRmssd = average(data.counts["heart_rate_variability_rmssd"] ?? []);
-    summary.spo2Avg = average(data.counts["oxygen_saturation"] ?? []);
+    summary.recoveryScore = average(data.counts.recovery_score ?? []);
+    summary.restingHeartRate = average(data.counts.resting_heart_rate ?? []);
+    summary.hrvRmssd = average(data.counts.heart_rate_variability_rmssd ?? []);
+    summary.spo2Avg = average(data.counts.oxygen_saturation ?? []);
     recoverySummaries.push(summary);
   }
 
   return [...sleepByDate.values(), ...recoverySummaries, ...bodyByDate.values()];
 }
 
-export function whoopOAuthConfig(
-  credentials: ProviderCredentials,
-): OAuthProviderConfig {
+export function whoopOAuthConfig(credentials: ProviderCredentials): OAuthProviderConfig {
   return {
     endpoints: {
       authorizeUrl: "https://api.prod.whoop.com/oauth/oauth2/auth",
@@ -589,8 +570,7 @@ async function fetchWhoopUserInfo(accessToken: string): Promise<ProviderUserInfo
       accessToken,
     );
     return {
-      providerUserId:
-        profile.user_id !== undefined ? String(profile.user_id) : null,
+      providerUserId: profile.user_id !== undefined ? String(profile.user_id) : null,
       username: profile.email ?? null,
     };
   } catch {
@@ -613,8 +593,8 @@ export const whoopProvider: ProviderAdapter = {
     return [...recovery, ...body];
   },
   fetchDailySummaries: async (accessToken, startDate, endDate) => {
-    const events = await whoopProvider.fetchEvents?.(accessToken, startDate, endDate) ?? [];
-    const points = await whoopProvider.fetchDataPoints?.(accessToken, startDate, endDate) ?? [];
+    const events = (await whoopProvider.fetchEvents?.(accessToken, startDate, endDate)) ?? [];
+    const points = (await whoopProvider.fetchDataPoints?.(accessToken, startDate, endDate)) ?? [];
     return aggregateDailySummaries(events, points);
   },
 };

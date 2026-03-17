@@ -7,46 +7,46 @@
  */
 
 import type {
+  AnyComponents,
   GenericActionCtx,
   GenericDataModel,
   GenericMutationCtx,
   GenericQueryCtx,
-  AnyComponents,
 } from "convex/server";
 import type {
-  ProviderName,
-  ProviderCredentials,
-  WearablesConfig,
-  Connection,
-  EventCategory,
-  HealthEvent,
-  DataPoint,
-  TimeSeriesPage,
-  EventsPage,
-  DailySummary,
-  SyncStatus,
-  SyncJob,
   AggregateStats,
+  Connection,
+  DailySummary,
+  DataPoint,
+  EventCategory,
+  EventsPage,
+  HealthEvent,
+  ProviderCredentials,
+  ProviderName,
+  SyncJob,
+  SyncStatus,
+  TimeSeriesPage,
+  WearablesConfig,
 } from "./types.js";
 
+export type { SeriesType, SleepEvent, SleepStage, WorkoutEvent } from "./types.js";
+export { SERIES_TYPES } from "./types.js";
 // Re-export types for consumers
 export type {
-  ProviderName,
-  ProviderCredentials,
-  WearablesConfig,
-  Connection,
-  EventCategory,
-  HealthEvent,
-  DataPoint,
-  TimeSeriesPage,
-  EventsPage,
-  DailySummary,
-  SyncStatus,
-  SyncJob,
   AggregateStats,
+  Connection,
+  DailySummary,
+  DataPoint,
+  EventCategory,
+  EventsPage,
+  HealthEvent,
+  ProviderCredentials,
+  ProviderName,
+  SyncJob,
+  SyncStatus,
+  TimeSeriesPage,
+  WearablesConfig,
 };
-export { SERIES_TYPES } from "./types.js";
-export type { SeriesType, WorkoutEvent, SleepEvent, SleepStage } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Component type — represents the installed component reference
@@ -108,10 +108,7 @@ export class WearablesClient {
   /**
    * Get all connections for a user.
    */
-  async getConnections(
-    ctx: QueryRunner,
-    args: { userId: string },
-  ): Promise<Connection[]> {
+  async getConnections(ctx: QueryRunner, args: { userId: string }): Promise<Connection[]> {
     return await ctx.runQuery(this.component.connections.getConnections, {
       userId: args.userId,
     });
@@ -130,10 +127,7 @@ export class WearablesClient {
   /**
    * Get sync status for a user across all providers.
    */
-  async getSyncStatus(
-    ctx: QueryRunner,
-    args: { userId: string },
-  ): Promise<SyncStatus[]> {
+  async getSyncStatus(ctx: QueryRunner, args: { userId: string }): Promise<SyncStatus[]> {
     return await ctx.runQuery(this.component.connections.getSyncStatus, {
       userId: args.userId,
     });
@@ -142,10 +136,7 @@ export class WearablesClient {
   /**
    * Disconnect a provider for a user.
    */
-  async disconnect(
-    ctx: MutationRunner,
-    args: { userId: string; provider: ProviderName },
-  ) {
+  async disconnect(ctx: MutationRunner, args: { userId: string; provider: ProviderName }) {
     return await ctx.runMutation(this.component.connections.disconnect, args);
   }
 
@@ -173,10 +164,7 @@ export class WearablesClient {
   /**
    * Get a single event by ID.
    */
-  async getEvent(
-    ctx: QueryRunner,
-    args: { eventId: string },
-  ): Promise<HealthEvent | null> {
+  async getEvent(ctx: QueryRunner, args: { eventId: string }): Promise<HealthEvent | null> {
     return await ctx.runQuery(this.component.events.getEvent, {
       eventId: args.eventId,
     });
@@ -199,10 +187,7 @@ export class WearablesClient {
       limit?: number;
     },
   ): Promise<DataPoint[]> {
-    return await ctx.runQuery(
-      this.component.dataPoints.getTimeSeriesForUser,
-      args,
-    );
+    return await ctx.runQuery(this.component.dataPoints.getTimeSeriesForUser, args);
   }
 
   /**
@@ -212,23 +197,14 @@ export class WearablesClient {
     ctx: QueryRunner,
     args: { userId: string; seriesType: string },
   ): Promise<{ timestamp: number; value: number; provider: string } | null> {
-    return await ctx.runQuery(
-      this.component.dataPoints.getLatestDataPoint,
-      args,
-    );
+    return await ctx.runQuery(this.component.dataPoints.getLatestDataPoint, args);
   }
 
   /**
    * Get all available series types for a user.
    */
-  async getAvailableSeriesTypes(
-    ctx: QueryRunner,
-    args: { userId: string },
-  ): Promise<string[]> {
-    return await ctx.runQuery(
-      this.component.dataPoints.getAvailableSeriesTypes,
-      args,
-    );
+  async getAvailableSeriesTypes(ctx: QueryRunner, args: { userId: string }): Promise<string[]> {
+    return await ctx.runQuery(this.component.dataPoints.getAvailableSeriesTypes, args);
   }
 
   // -----------------------------------------------------------------------
@@ -335,10 +311,7 @@ export class WearablesClient {
   /**
    * Run a sync across all active connections using the configured provider credentials.
    */
-  async syncAllActive(
-    ctx: ActionRunner,
-    args?: { syncWindowHours?: number },
-  ) {
+  async syncAllActive(ctx: ActionRunner, args?: { syncWindowHours?: number }) {
     return await ctx.runAction(this.component.syncWorkflow.syncAllActive, {
       clientCredentials: this.config.providers,
       syncWindowHours: args?.syncWindowHours,
@@ -352,10 +325,7 @@ export class WearablesClient {
   /**
    * Delete all data for a user (GDPR compliance, account deletion).
    */
-  async deleteAllUserData(
-    ctx: MutationRunner,
-    args: { userId: string },
-  ) {
+  async deleteAllUserData(ctx: MutationRunner, args: { userId: string }) {
     return await ctx.runMutation(this.component.lifecycle.deleteAllUserData, {
       userId: args.userId,
     });

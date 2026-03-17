@@ -2,12 +2,12 @@
  * Provider registry — maps provider names to their OAuth configs and data fetchers.
  */
 
-import type { ProviderAdapter } from "./types";
-import { stravaProvider } from "./strava";
 import { garminProvider } from "./garmin";
 import { polarProvider } from "./polar";
-import { whoopProvider } from "./whoop";
+import { stravaProvider } from "./strava";
 import { suuntoProvider } from "./suunto";
+import type { ProviderAdapter } from "./types";
+import { whoopProvider } from "./whoop";
 
 // ---------------------------------------------------------------------------
 // Provider definition

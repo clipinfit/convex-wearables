@@ -9,14 +9,10 @@
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { action, internalAction, type ActionCtx } from "./_generated/server";
-import { providerName } from "./schema";
+import { type ActionCtx, action, internalAction } from "./_generated/server";
 import { getProvider } from "./providers/registry";
-import type {
-  NormalizedDailySummary,
-  NormalizedDataPoint,
-  NormalizedEvent,
-} from "./providers/types";
+import type { NormalizedEvent } from "./providers/types";
+import { providerName } from "./schema";
 
 // Maximum events per batch mutation (stay well within 1-second timeout)
 const BATCH_SIZE = 50;
@@ -79,11 +75,7 @@ async function ensureDataSource(
   return id;
 }
 
-function toEventDoc(
-  event: NormalizedEvent,
-  dataSourceId: Id<"dataSources">,
-  userId: string,
-) {
+function toEventDoc(event: NormalizedEvent, dataSourceId: Id<"dataSources">, userId: string) {
   return {
     dataSourceId,
     userId,
@@ -180,12 +172,7 @@ export const syncConnection = internalAction({
       let recordsProcessed = 0;
 
       const events = providerDef.fetchEvents
-        ? await providerDef.fetchEvents(
-            accessToken,
-            args.startDate,
-            args.endDate,
-            credentials,
-          )
+        ? await providerDef.fetchEvents(accessToken, args.startDate, args.endDate, credentials)
         : [];
 
       for (let i = 0; i < events.length; i += BATCH_SIZE) {
@@ -220,23 +207,21 @@ export const syncConnection = internalAction({
       }
 
       const dataPoints = providerDef.fetchDataPoints
-        ? await providerDef.fetchDataPoints(
-            accessToken,
-            args.startDate,
-            args.endDate,
-            credentials,
-          )
+        ? await providerDef.fetchDataPoints(accessToken, args.startDate, args.endDate, credentials)
         : [];
 
-      const pointGroups = new Map<string, {
-        dataSourceId: Id<"dataSources">;
-        seriesType: string;
-        points: Array<{
-          recordedAt: number;
-          value: number;
-          externalId?: string;
-        }>;
-      }>();
+      const pointGroups = new Map<
+        string,
+        {
+          dataSourceId: Id<"dataSources">;
+          seriesType: string;
+          points: Array<{
+            recordedAt: number;
+            value: number;
+            externalId?: string;
+          }>;
+        }
+      >();
 
       for (const point of dataPoints) {
         const dataSourceId = await ensureDataSource(
@@ -318,10 +303,7 @@ export const syncConnection = internalAction({
       });
 
       // If token error, mark connection status
-      if (
-        error instanceof Error &&
-        error.message.includes("Authorization expired")
-      ) {
+      if (error instanceof Error && error.message.includes("Authorization expired")) {
         await ctx.runMutation(internal.connections.updateStatus, {
           connectionId: args.connectionId,
           status: "expired",
@@ -340,27 +322,37 @@ export const syncConnection = internalAction({
 export const syncAllActive = action({
   args: {
     clientCredentials: v.object({
-      strava: v.optional(v.object({
-        clientId: v.string(),
-        clientSecret: v.string(),
-      })),
-      garmin: v.optional(v.object({
-        clientId: v.string(),
-        clientSecret: v.string(),
-      })),
-      polar: v.optional(v.object({
-        clientId: v.string(),
-        clientSecret: v.string(),
-      })),
-      whoop: v.optional(v.object({
-        clientId: v.string(),
-        clientSecret: v.string(),
-      })),
-      suunto: v.optional(v.object({
-        clientId: v.string(),
-        clientSecret: v.string(),
-        subscriptionKey: v.optional(v.string()),
-      })),
+      strava: v.optional(
+        v.object({
+          clientId: v.string(),
+          clientSecret: v.string(),
+        }),
+      ),
+      garmin: v.optional(
+        v.object({
+          clientId: v.string(),
+          clientSecret: v.string(),
+        }),
+      ),
+      polar: v.optional(
+        v.object({
+          clientId: v.string(),
+          clientSecret: v.string(),
+        }),
+      ),
+      whoop: v.optional(
+        v.object({
+          clientId: v.string(),
+          clientSecret: v.string(),
+        }),
+      ),
+      suunto: v.optional(
+        v.object({
+          clientId: v.string(),
+          clientSecret: v.string(),
+          subscriptionKey: v.optional(v.string()),
+        }),
+      ),
     }),
     syncWindowHours: v.optional(v.number()), // default: 24
   },
@@ -373,10 +365,7 @@ export const syncAllActive = action({
       if (!creds) continue;
 
       const windowMs = (args.syncWindowHours ?? 24) * 60 * 60 * 1000;
-      const startDate = Math.max(
-        conn.lastSyncedAt ?? endDate - windowMs,
-        endDate - windowMs,
-      );
+      const startDate = Math.max(conn.lastSyncedAt ?? endDate - windowMs, endDate - windowMs);
 
       try {
         await ctx.runAction(internal.syncWorkflow.syncConnection, {

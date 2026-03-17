@@ -4,22 +4,20 @@
  * Fetches activities from Strava API and normalizes them to our event format.
  */
 
+import { makeAuthenticatedRequest } from "./oauth";
 import type {
-  OAuthProviderConfig,
   NormalizedEvent,
+  OAuthProviderConfig,
   ProviderAdapter,
   ProviderCredentials,
   ProviderUserInfo,
 } from "./types";
-import { makeAuthenticatedRequest } from "./oauth";
 
 // ---------------------------------------------------------------------------
 // OAuth config
 // ---------------------------------------------------------------------------
 
-export function stravaOAuthConfig(
-  credentials: ProviderCredentials,
-): OAuthProviderConfig {
+export function stravaOAuthConfig(credentials: ProviderCredentials): OAuthProviderConfig {
   return {
     endpoints: {
       authorizeUrl: "https://www.strava.com/oauth/authorize",
@@ -215,9 +213,7 @@ export async function fetchStravaWorkouts(
 /**
  * Normalize a single Strava activity (for webhook push processing).
  */
-export function normalizeStravaActivity(
-  activityJson: StravaActivity,
-): NormalizedEvent {
+export function normalizeStravaActivity(activityJson: StravaActivity): NormalizedEvent {
   return normalizeActivity(activityJson);
 }
 

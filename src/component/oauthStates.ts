@@ -1,9 +1,6 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import {
-  internalQuery,
-  internalMutation,
-} from "./_generated/server";
+import { internalMutation, internalQuery } from "./_generated/server";
 import { providerName } from "./schema";
 
 // ---------------------------------------------------------------------------

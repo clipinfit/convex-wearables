@@ -24,8 +24,11 @@ describe("summaries", () => {
         return await ctx.db
           .query("dailySummaries")
           .withIndex("by_user_category_date", (idx) =>
-            idx.eq("userId", "user-1").eq("category", "activity")
-              .gte("date", "2026-03-15").lte("date", "2026-03-15"),
+            idx
+              .eq("userId", "user-1")
+              .eq("category", "activity")
+              .gte("date", "2026-03-15")
+              .lte("date", "2026-03-15"),
           )
           .collect();
       });
@@ -44,8 +47,10 @@ describe("summaries", () => {
       // First insert
       await t.run(async (ctx) => {
         await ctx.db.insert("dailySummaries", {
-          userId: "user-1", date: "2026-03-15",
-          category: "activity", totalSteps: 5000,
+          userId: "user-1",
+          date: "2026-03-15",
+          category: "activity",
+          totalSteps: 5000,
         });
       });
 
@@ -97,8 +102,11 @@ describe("summaries", () => {
         return await ctx.db
           .query("dailySummaries")
           .withIndex("by_user_category_date", (idx) =>
-            idx.eq("userId", "user-1").eq("category", "activity")
-              .gte("date", "2026-03-12").lte("date", "2026-03-14"),
+            idx
+              .eq("userId", "user-1")
+              .eq("category", "activity")
+              .gte("date", "2026-03-12")
+              .lte("date", "2026-03-14"),
           )
           .collect();
       });
@@ -113,12 +121,16 @@ describe("summaries", () => {
 
       await t.run(async (ctx) => {
         await ctx.db.insert("dailySummaries", {
-          userId: "user-1", date: "2026-03-15",
-          category: "activity", totalSteps: 10000,
+          userId: "user-1",
+          date: "2026-03-15",
+          category: "activity",
+          totalSteps: 10000,
         });
         await ctx.db.insert("dailySummaries", {
-          userId: "user-1", date: "2026-03-15",
-          category: "sleep", sleepDurationMinutes: 480,
+          userId: "user-1",
+          date: "2026-03-15",
+          category: "sleep",
+          sleepDurationMinutes: 480,
         });
       });
 
@@ -152,25 +164,30 @@ describe("summaries", () => {
 
       await t.run(async (ctx) => {
         await ctx.db.insert("dailySummaries", {
-          userId: "user-1", date: "2026-03-15",
-          category: "activity", totalSteps: 10000,
+          userId: "user-1",
+          date: "2026-03-15",
+          category: "activity",
+          totalSteps: 10000,
         });
         await ctx.db.insert("dailySummaries", {
-          userId: "user-1", date: "2026-03-15",
-          category: "sleep", sleepDurationMinutes: 480,
+          userId: "user-1",
+          date: "2026-03-15",
+          category: "sleep",
+          sleepDurationMinutes: 480,
         });
         await ctx.db.insert("dailySummaries", {
-          userId: "user-1", date: "2026-03-15",
-          category: "recovery", restingHeartRate: 55, hrvAvg: 65,
+          userId: "user-1",
+          date: "2026-03-15",
+          category: "recovery",
+          restingHeartRate: 55,
+          hrvAvg: 65,
         });
       });
 
       const all = await t.run(async (ctx) => {
         return await ctx.db
           .query("dailySummaries")
-          .withIndex("by_user_date", (idx) =>
-            idx.eq("userId", "user-1").eq("date", "2026-03-15"),
-          )
+          .withIndex("by_user_date", (idx) => idx.eq("userId", "user-1").eq("date", "2026-03-15"))
           .collect();
       });
 

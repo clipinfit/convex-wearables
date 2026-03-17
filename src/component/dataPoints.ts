@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { query, internalMutation } from "./_generated/server";
+import { internalMutation, query } from "./_generated/server";
 
 // ---------------------------------------------------------------------------
 // Queries
@@ -60,9 +60,7 @@ export const getTimeSeries = query({
       value: dp.value,
     }));
     const nextCursor =
-      hasMore && items.length > 0
-        ? String(items[items.length - 1].recordedAt)
-        : null;
+      hasMore && items.length > 0 ? String(items[items.length - 1].recordedAt) : null;
 
     return { points, nextCursor, hasMore };
   },
@@ -148,9 +146,7 @@ export const getLatestDataPoint = query({
       const point = await ctx.db
         .query("dataPoints")
         .withIndex("by_source_type_time", (idx) =>
-          idx
-            .eq("dataSourceId", source._id)
-            .eq("seriesType", args.seriesType),
+          idx.eq("dataSourceId", source._id).eq("seriesType", args.seriesType),
         )
         .order("desc")
         .first();
@@ -187,9 +183,7 @@ export const getAvailableSeriesTypes = query({
       // This is efficient because we only need one per type
       const points = await ctx.db
         .query("dataPoints")
-        .withIndex("by_source_type_time", (idx) =>
-          idx.eq("dataSourceId", source._id),
-        )
+        .withIndex("by_source_type_time", (idx) => idx.eq("dataSourceId", source._id))
         .take(200);
 
       for (const point of points) {
@@ -295,9 +289,7 @@ export const deleteByDataSource = internalMutation({
     // Delete in batches to avoid hitting limits
     let batch = await ctx.db
       .query("dataPoints")
-      .withIndex("by_source_type_time", (idx) =>
-        idx.eq("dataSourceId", args.dataSourceId),
-      )
+      .withIndex("by_source_type_time", (idx) => idx.eq("dataSourceId", args.dataSourceId))
       .take(1000);
 
     while (batch.length > 0) {
@@ -306,9 +298,7 @@ export const deleteByDataSource = internalMutation({
       }
       batch = await ctx.db
         .query("dataPoints")
-        .withIndex("by_source_type_time", (idx) =>
-          idx.eq("dataSourceId", args.dataSourceId),
-        )
+        .withIndex("by_source_type_time", (idx) => idx.eq("dataSourceId", args.dataSourceId))
         .take(1000);
     }
   },

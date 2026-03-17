@@ -40,10 +40,12 @@ describe("Strava normalizeActivity", () => {
   });
 
   it("calculates start and end timestamps correctly", () => {
-    const event = normalizeStravaActivity(makeActivity({
-      start_date: "2026-03-15T10:00:00Z",
-      elapsed_time: 3600, // 1 hour
-    }));
+    const event = normalizeStravaActivity(
+      makeActivity({
+        start_date: "2026-03-15T10:00:00Z",
+        elapsed_time: 3600, // 1 hour
+      }),
+    );
 
     const expectedStart = new Date("2026-03-15T10:00:00Z").getTime();
     expect(event.startDatetime).toBe(expectedStart);
@@ -74,9 +76,7 @@ describe("Strava normalizeActivity", () => {
   });
 
   it("falls back to activity type when sport_type is unknown", () => {
-    const event = normalizeStravaActivity(
-      makeActivity({ sport_type: "SomeNewType", type: "Run" }),
-    );
+    const event = normalizeStravaActivity(makeActivity({ sport_type: "SomeNewType", type: "Run" }));
     expect(event.type).toBe("running");
   });
 

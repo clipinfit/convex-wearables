@@ -1,3 +1,4 @@
+import { makeAuthenticatedRequest } from "./oauth";
 import type {
   NormalizedDailySummary,
   NormalizedDataPoint,
@@ -7,7 +8,6 @@ import type {
   ProviderCredentials,
   ProviderUserInfo,
 } from "./types";
-import { makeAuthenticatedRequest } from "./oauth";
 
 const API_BASE = "https://cloudapi.suunto.com";
 const WORKOUTS_ENDPOINT = "/v3/workouts/";
@@ -21,127 +21,127 @@ const SUBSCRIPTION_HEADER = "Ocp-Apim-Subscription-Key";
 const ENERGY_CONVERSION = 4184; // joules → kcal
 
 const SUUNTO_ACTIVITY_TYPE_MAP: Record<number, string> = {
-  0: 'walking',
-  1: 'running',
-  2: 'cycling',
-  3: 'cross_country_skiing',
-  4: 'other',
-  5: 'other',
-  6: 'other',
-  7: 'other',
-  8: 'other',
-  9: 'other',
-  10: 'mountain_biking',
-  11: 'hiking',
-  12: 'inline_skating',
-  13: 'alpine_skiing',
-  14: 'paddling',
-  15: 'rowing',
-  16: 'golf',
-  17: 'fitness_equipment',
-  18: 'other',
-  19: 'other',
-  20: 'fitness_equipment',
-  21: 'swimming',
-  22: 'trail_running',
-  23: 'strength_training',
-  24: 'walking',
-  25: 'horseback_riding',
-  26: 'motorcycling',
-  27: 'skateboarding',
-  28: 'other',
-  29: 'rock_climbing',
-  30: 'snowboarding',
-  31: 'backcountry_skiing',
-  32: 'aerobics',
-  33: 'soccer',
-  34: 'tennis',
-  35: 'basketball',
-  36: 'badminton',
-  37: 'baseball',
-  38: 'volleyball',
-  39: 'american_football',
-  40: 'table_tennis',
-  41: 'other',
-  42: 'squash',
-  43: 'floorball',
-  44: 'handball',
-  45: 'baseball',
-  46: 'other',
-  47: 'other',
-  48: 'rugby',
-  49: 'ice_skating',
-  50: 'hockey',
-  51: 'yoga',
-  52: 'indoor_cycling',
-  53: 'treadmill',
-  54: 'strength_training',
-  55: 'elliptical',
-  56: 'cross_country_skiing',
-  57: 'rowing_machine',
-  58: 'stretching',
-  59: 'running',
-  60: 'orienteering',
-  61: 'stand_up_paddleboarding',
-  62: 'martial_arts',
-  63: 'strength_training',
-  64: 'dance',
-  65: 'snowshoeing',
-  66: 'other',
-  67: 'soccer',
-  68: 'multisport',
-  69: 'aerobics',
-  70: 'hiking',
-  71: 'sailing',
-  72: 'kayaking',
-  73: 'strength_training',
-  74: 'triathlon',
-  75: 'padel',
-  76: 'aerobics',
-  77: 'boxing',
-  78: 'diving',
-  79: 'diving',
-  80: 'multisport',
-  81: 'fitness_equipment',
-  82: 'canoeing',
-  83: 'mountaineering',
-  84: 'alpine_skiing',
-  85: 'open_water_swimming',
-  86: 'windsurfing',
-  87: 'kitesurfing',
-  88: 'other',
-  90: 'diving',
-  91: 'surfing',
-  92: 'multisport',
-  93: 'multisport',
-  94: 'multisport',
-  95: 'running',
-  96: 'other',
-  97: 'other',
-  98: 'transition',
-  99: 'cycling',
-  100: 'swimming',
-  101: 'diving',
-  102: 'cardio_training',
-  103: 'running',
-  104: 'strength_training',
-  105: 'e_biking',
-  106: 'e_biking',
-  107: 'backcountry_skiing',
-  108: 'other',
-  109: 'cycling',
-  110: 'snowboarding',
-  111: 'multisport',
-  112: 'stretching',
-  113: 'hockey',
-  114: 'cyclocross',
-  115: 'trail_running',
-  116: 'mountaineering',
-  117: 'cross_country_skiing',
-  118: 'cross_country_skiing',
-  119: 'other',
-  120: 'pilates',
-  121: 'yoga',
+  0: "walking",
+  1: "running",
+  2: "cycling",
+  3: "cross_country_skiing",
+  4: "other",
+  5: "other",
+  6: "other",
+  7: "other",
+  8: "other",
+  9: "other",
+  10: "mountain_biking",
+  11: "hiking",
+  12: "inline_skating",
+  13: "alpine_skiing",
+  14: "paddling",
+  15: "rowing",
+  16: "golf",
+  17: "fitness_equipment",
+  18: "other",
+  19: "other",
+  20: "fitness_equipment",
+  21: "swimming",
+  22: "trail_running",
+  23: "strength_training",
+  24: "walking",
+  25: "horseback_riding",
+  26: "motorcycling",
+  27: "skateboarding",
+  28: "other",
+  29: "rock_climbing",
+  30: "snowboarding",
+  31: "backcountry_skiing",
+  32: "aerobics",
+  33: "soccer",
+  34: "tennis",
+  35: "basketball",
+  36: "badminton",
+  37: "baseball",
+  38: "volleyball",
+  39: "american_football",
+  40: "table_tennis",
+  41: "other",
+  42: "squash",
+  43: "floorball",
+  44: "handball",
+  45: "baseball",
+  46: "other",
+  47: "other",
+  48: "rugby",
+  49: "ice_skating",
+  50: "hockey",
+  51: "yoga",
+  52: "indoor_cycling",
+  53: "treadmill",
+  54: "strength_training",
+  55: "elliptical",
+  56: "cross_country_skiing",
+  57: "rowing_machine",
+  58: "stretching",
+  59: "running",
+  60: "orienteering",
+  61: "stand_up_paddleboarding",
+  62: "martial_arts",
+  63: "strength_training",
+  64: "dance",
+  65: "snowshoeing",
+  66: "other",
+  67: "soccer",
+  68: "multisport",
+  69: "aerobics",
+  70: "hiking",
+  71: "sailing",
+  72: "kayaking",
+  73: "strength_training",
+  74: "triathlon",
+  75: "padel",
+  76: "aerobics",
+  77: "boxing",
+  78: "diving",
+  79: "diving",
+  80: "multisport",
+  81: "fitness_equipment",
+  82: "canoeing",
+  83: "mountaineering",
+  84: "alpine_skiing",
+  85: "open_water_swimming",
+  86: "windsurfing",
+  87: "kitesurfing",
+  88: "other",
+  90: "diving",
+  91: "surfing",
+  92: "multisport",
+  93: "multisport",
+  94: "multisport",
+  95: "running",
+  96: "other",
+  97: "other",
+  98: "transition",
+  99: "cycling",
+  100: "swimming",
+  101: "diving",
+  102: "cardio_training",
+  103: "running",
+  104: "strength_training",
+  105: "e_biking",
+  106: "e_biking",
+  107: "backcountry_skiing",
+  108: "other",
+  109: "cycling",
+  110: "snowboarding",
+  111: "multisport",
+  112: "stretching",
+  113: "hockey",
+  114: "cyclocross",
+  115: "trail_running",
+  116: "mountaineering",
+  117: "cross_country_skiing",
+  118: "cross_country_skiing",
+  119: "other",
+  120: "pilates",
+  121: "yoga",
 };
 
 function toDateString(value: number | string): string | undefined {
@@ -158,9 +158,7 @@ function parseTimestamp(value: number | string | undefined | null): number | und
 }
 
 function buildHeaders(subscriptionKey?: string): Record<string, string> | undefined {
-  return subscriptionKey
-    ? { [SUBSCRIPTION_HEADER]: subscriptionKey }
-    : undefined;
+  return subscriptionKey ? { [SUBSCRIPTION_HEADER]: subscriptionKey } : undefined;
 }
 
 function decodeJwt(token: string): Record<string, unknown> | null {
@@ -192,19 +190,14 @@ async function paginatedWorkouts(
   const items: any[] = [];
   let offset = 0;
   while (true) {
-    const response = await makeAuthenticatedRequest<any>(
-      API_BASE,
-      WORKOUTS_ENDPOINT,
-      accessToken,
-      {
-        params: {
-          since: Math.floor(startDate / 1000),
-          limit: perPage,
-          offset,
-        },
-        headers,
+    const response = await makeAuthenticatedRequest<any>(API_BASE, WORKOUTS_ENDPOINT, accessToken, {
+      params: {
+        since: Math.floor(startDate / 1000),
+        limit: perPage,
+        offset,
       },
-    );
+      headers,
+    });
 
     const payload = Array.isArray(response?.payload) ? response.payload : [];
     if (!payload.length) break;
@@ -237,8 +230,7 @@ function normalizeWorkout(raw: any): NormalizedEvent {
     durationSeconds: duration,
     startDatetime: start ?? Date.now(),
     endDatetime: end,
-    externalId:
-      raw.workoutId != null ? `suunto-workout-${raw.workoutId}` : undefined,
+    externalId: raw.workoutId != null ? `suunto-workout-${raw.workoutId}` : undefined,
     heartRateMin: hrData?.min,
     heartRateMax: hrData?.hrmax ?? hrData?.max,
     heartRateAvg: hrData?.avg ?? undefined,
@@ -266,13 +258,8 @@ function normalizeSleep(raw: any): NormalizedEvent | null {
   const deepSeconds = Number(entry.DeepSleepDuration ?? 0);
   const lightSeconds = Number(entry.LightSleepDuration ?? 0);
   const remSeconds = Number(entry.REMSleepDuration ?? 0);
-  const awakeSeconds = Math.max(
-    0,
-    durationSeconds - deepSeconds - lightSeconds - remSeconds,
-  );
-  const totalSleepMinutes = Math.floor(
-    (deepSeconds + lightSeconds + remSeconds) / 60,
-  );
+  const awakeSeconds = Math.max(0, durationSeconds - deepSeconds - lightSeconds - remSeconds);
+  const totalSleepMinutes = Math.floor((deepSeconds + lightSeconds + remSeconds) / 60);
   const timeInBedMinutes = Math.floor(durationSeconds / 60);
 
   return {
@@ -283,8 +270,7 @@ function normalizeSleep(raw: any): NormalizedEvent | null {
     durationSeconds,
     startDatetime: startTime,
     endDatetime: endTime,
-    externalId:
-      entry.SleepId != null ? `suunto-sleep-${entry.SleepId}` : undefined,
+    externalId: entry.SleepId != null ? `suunto-sleep-${entry.SleepId}` : undefined,
     sleepTotalDurationMinutes: totalSleepMinutes,
     sleepTimeInBedMinutes: timeInBedMinutes,
     sleepDeepMinutes: Math.floor(deepSeconds / 60),
@@ -308,18 +294,13 @@ async function fetchSleepEvents(
 
   while (cursor < endDate) {
     const chunkEnd = Math.min(cursor + SLEEP_CHUNK_MS, endDate);
-    const response = await makeAuthenticatedRequest<any>(
-      API_BASE,
-      SLEEP_ENDPOINT,
-      accessToken,
-      {
-        params: {
-          from: cursor,
-          to: chunkEnd,
-        },
-        headers,
+    const response = await makeAuthenticatedRequest<any>(API_BASE, SLEEP_ENDPOINT, accessToken, {
+      params: {
+        from: cursor,
+        to: chunkEnd,
       },
-    );
+      headers,
+    });
 
     const entries = Array.isArray(response) ? response : [];
     for (const entry of entries) {
@@ -357,14 +338,29 @@ function normalizeActivitySamples(raw: any): NormalizedDataPoint[] {
   const points: NormalizedDataPoint[] = [];
 
   if (Number.isFinite(entry.HR)) {
-    points.push({ seriesType: "heart_rate", recordedAt: timestamp, value: Number(entry.HR), source: "suunto" });
+    points.push({
+      seriesType: "heart_rate",
+      recordedAt: timestamp,
+      value: Number(entry.HR),
+      source: "suunto",
+    });
   }
   if (Number.isFinite(entry.StepCount)) {
-    points.push({ seriesType: "steps", recordedAt: timestamp, value: Number(entry.StepCount), source: "suunto" });
+    points.push({
+      seriesType: "steps",
+      recordedAt: timestamp,
+      value: Number(entry.StepCount),
+      source: "suunto",
+    });
   }
   if (Number.isFinite(entry.SpO2)) {
     const spo2 = Number(entry.SpO2);
-    points.push({ seriesType: "oxygen_saturation", recordedAt: timestamp, value: spo2 <= 1 ? spo2 * 100 : spo2, source: "suunto" });
+    points.push({
+      seriesType: "oxygen_saturation",
+      recordedAt: timestamp,
+      value: spo2 <= 1 ? spo2 * 100 : spo2,
+      source: "suunto",
+    });
   }
   if (Number.isFinite(entry.EnergyConsumption)) {
     points.push({
@@ -375,13 +371,20 @@ function normalizeActivitySamples(raw: any): NormalizedDataPoint[] {
     });
   }
   if (Number.isFinite(entry.HRV)) {
-    points.push({ seriesType: "heart_rate_variability_rmssd", recordedAt: timestamp, value: Number(entry.HRV), source: "suunto" });
+    points.push({
+      seriesType: "heart_rate_variability_rmssd",
+      recordedAt: timestamp,
+      value: Number(entry.HRV),
+      source: "suunto",
+    });
   }
 
   return points;
 }
 
-function normalizeDailyStatSample(stat: any): { date: string; type: string; recordedAt: number; value: number }[] {
+function normalizeDailyStatSample(
+  stat: any,
+): { date: string; type: string; recordedAt: number; value: number }[] {
   const type = (stat.Name ?? stat.type ?? "").toLowerCase();
   const samples = [] as { date: string; type: string; recordedAt: number; value: number }[];
   const sources = Array.isArray(stat.Sources) ? stat.Sources : [];
@@ -468,15 +471,10 @@ async function fetchRecurrencePoints(
 
   while (cursor < endDate) {
     const chunkEnd = Math.min(cursor + SLEEP_CHUNK_MS, endDate);
-    const response = await makeAuthenticatedRequest<any>(
-      API_BASE,
-      endpoint,
-      accessToken,
-      {
-        params: { from: cursor, to: chunkEnd },
-        headers,
-      },
-    );
+    const response = await makeAuthenticatedRequest<any>(API_BASE, endpoint, accessToken, {
+      params: { from: cursor, to: chunkEnd },
+      headers,
+    });
     if (Array.isArray(response)) results.push(...response);
     if (chunkEnd === endDate) break;
     cursor = chunkEnd;
@@ -523,12 +521,7 @@ async function aggregateDailySummaries(
   endDate: number,
   credentials?: ProviderCredentials,
 ): Promise<NormalizedDailySummary[]> {
-  const dataPoints = await fetchDailyStats(
-    accessToken,
-    startDate,
-    endDate,
-    credentials,
-  );
+  const dataPoints = await fetchDailyStats(accessToken, startDate, endDate, credentials);
   const summaryMap: Record<string, NormalizedDailySummary> = {};
 
   for (const point of dataPoints) {
@@ -546,9 +539,7 @@ async function aggregateDailySummaries(
   return Object.values(summaryMap);
 }
 
-export function suuntoOAuthConfig(
-  credentials: ProviderCredentials,
-): OAuthProviderConfig {
+export function suuntoOAuthConfig(credentials: ProviderCredentials): OAuthProviderConfig {
   return {
     endpoints: {
       authorizeUrl: "https://cloudapi-oauth.suunto.com/oauth/authorize",
@@ -582,48 +573,18 @@ export const suuntoProvider: ProviderAdapter = {
   oauthConfig: suuntoOAuthConfig,
   getUserInfo: getSuuntoUserInfo,
   fetchEvents: async (accessToken, startDate, endDate, credentials) => {
-    const workouts = await paginatedWorkouts(
-      accessToken,
-      startDate,
-      endDate,
-      credentials,
-    );
+    const workouts = await paginatedWorkouts(accessToken, startDate, endDate, credentials);
     const normalizedWorkouts = workouts.map(normalizeWorkout);
-    const sleep = await fetchSleepEvents(
-      accessToken,
-      startDate,
-      endDate,
-      credentials,
-    );
+    const sleep = await fetchSleepEvents(accessToken, startDate, endDate, credentials);
     return [...normalizedWorkouts, ...sleep];
   },
   fetchDataPoints: async (accessToken, startDate, endDate, credentials) => {
-    const recovery = await fetchSuuntoRecovery(
-      accessToken,
-      startDate,
-      endDate,
-      credentials,
-    );
-    const activity = await fetchSuuntoActivity(
-      accessToken,
-      startDate,
-      endDate,
-      credentials,
-    );
-    const daily = await fetchDailyStats(
-      accessToken,
-      startDate,
-      endDate,
-      credentials,
-    );
+    const recovery = await fetchSuuntoRecovery(accessToken, startDate, endDate, credentials);
+    const activity = await fetchSuuntoActivity(accessToken, startDate, endDate, credentials);
+    const daily = await fetchDailyStats(accessToken, startDate, endDate, credentials);
     return [...recovery, ...activity, ...daily];
   },
   fetchDailySummaries: async (accessToken, startDate, endDate, credentials) => {
-    return aggregateDailySummaries(
-      accessToken,
-      startDate,
-      endDate,
-      credentials,
-    );
+    return aggregateDailySummaries(accessToken, startDate, endDate, credentials);
   },
 };

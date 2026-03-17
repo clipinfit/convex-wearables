@@ -4,11 +4,7 @@
  * exchange codes for tokens, and refresh tokens.
  */
 
-import type {
-  OAuthProviderConfig,
-  OAuthTokenResponse,
-  ProviderUserInfo,
-} from "./types";
+import type { OAuthProviderConfig, OAuthTokenResponse } from "./types";
 
 // ---------------------------------------------------------------------------
 // PKCE helpers
@@ -18,8 +14,7 @@ import type {
  * Generate a random URL-safe string for use as state or code_verifier.
  */
 export function generateRandomString(length: number): string {
-  const chars =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
   const array = new Uint8Array(length);
   crypto.getRandomValues(array);
   return Array.from(array, (b) => chars[b % chars.length]).join("");
@@ -28,9 +23,7 @@ export function generateRandomString(length: number): string {
 /**
  * Generate a PKCE code_challenge from a code_verifier using SHA-256.
  */
-export async function generateCodeChallenge(
-  codeVerifier: string,
-): Promise<string> {
+export async function generateCodeChallenge(codeVerifier: string): Promise<string> {
   const encoder = new TextEncoder();
   const data = encoder.encode(codeVerifier);
   const digest = await crypto.subtle.digest("SHA-256", data);
@@ -109,10 +102,8 @@ export async function exchangeCodeForTokens(
   };
 
   if (config.authMethod === "basic") {
-    const credentials = btoa(
-      `${config.clientId}:${config.clientSecret}`,
-    );
-    headers["Authorization"] = `Basic ${credentials}`;
+    const credentials = btoa(`${config.clientId}:${config.clientSecret}`);
+    headers.Authorization = `Basic ${credentials}`;
   } else {
     // Body-based auth
     body.set("client_id", config.clientId);
@@ -127,9 +118,7 @@ export async function exchangeCodeForTokens(
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(
-      `Token exchange failed (${response.status}): ${text}`,
-    );
+    throw new Error(`Token exchange failed (${response.status}): ${text}`);
   }
 
   return (await response.json()) as OAuthTokenResponse;
@@ -157,10 +146,8 @@ export async function refreshAccessToken(
   };
 
   if (config.authMethod === "basic") {
-    const credentials = btoa(
-      `${config.clientId}:${config.clientSecret}`,
-    );
-    headers["Authorization"] = `Basic ${credentials}`;
+    const credentials = btoa(`${config.clientId}:${config.clientSecret}`);
+    headers.Authorization = `Basic ${credentials}`;
   } else {
     body.set("client_id", config.clientId);
     body.set("client_secret", config.clientSecret);
@@ -174,9 +161,7 @@ export async function refreshAccessToken(
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(
-      `Token refresh failed (${response.status}): ${text}`,
-    );
+    throw new Error(`Token refresh failed (${response.status}): ${text}`);
   }
 
   return (await response.json()) as OAuthTokenResponse;
@@ -226,7 +211,7 @@ export async function makeAuthenticatedRequest<T = unknown>(
     });
 
     if (response.status === 429 && attempt < MAX_RETRIES) {
-      const delay = RETRY_BASE_DELAY_MS * Math.pow(2, attempt);
+      const delay = RETRY_BASE_DELAY_MS * 2 ** attempt;
       await new Promise((resolve) => setTimeout(resolve, delay));
       continue;
     }
@@ -237,9 +222,7 @@ export async function makeAuthenticatedRequest<T = unknown>(
 
     if (!response.ok) {
       const text = await response.text();
-      throw new Error(
-        `API request failed (${response.status}): ${text}`,
-      );
+      throw new Error(`API request failed (${response.status}): ${text}`);
     }
 
     return (await response.json()) as T;

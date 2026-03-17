@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { polarProvider } from "./polar";
-import { whoopProvider } from "./whoop";
 import { suuntoOAuthConfig, suuntoProvider } from "./suunto";
+import { whoopProvider } from "./whoop";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -36,9 +36,7 @@ describe("polarProvider", () => {
       clientSecret: "polar-secret",
     });
 
-    expect(config.endpoints.authorizeUrl).toBe(
-      "https://flow.polar.com/oauth2/authorization",
-    );
+    expect(config.endpoints.authorizeUrl).toBe("https://flow.polar.com/oauth2/authorization");
     expect(config.authMethod).toBe("basic");
     expect(config.defaultScope).toBe("accesslink.read_all");
 
@@ -100,11 +98,7 @@ describe("polarProvider", () => {
   it("registers the Polar member after connect", async () => {
     const fetchMock = mockFetchSequence([jsonResponse({})]);
 
-    await polarProvider.postConnect!(
-      "polar-token",
-      { access_token: "polar-token" },
-      "app-user-1",
-    );
+    await polarProvider.postConnect!("polar-token", { access_token: "polar-token" }, "app-user-1");
 
     const [url, init] = fetchMock.mock.calls[0] ?? [];
     expect(String(url)).toBe("https://www.polaraccesslink.com/v3/users");
@@ -241,17 +235,17 @@ describe("suuntoProvider", () => {
       subscriptionKey: "sub-key",
     });
 
-    expect(config.endpoints.authorizeUrl).toBe(
-      "https://cloudapi-oauth.suunto.com/oauth/authorize",
-    );
+    expect(config.endpoints.authorizeUrl).toBe("https://cloudapi-oauth.suunto.com/oauth/authorize");
     expect(config.defaultHeaders).toEqual({
       "Ocp-Apim-Subscription-Key": "sub-key",
     });
 
-    const user = await suuntoProvider.getUserInfo(makeJwt({
-      sub: "suunto-user",
-      user: "denis",
-    }));
+    const user = await suuntoProvider.getUserInfo(
+      makeJwt({
+        sub: "suunto-user",
+        user: "denis",
+      }),
+    );
     expect(user).toEqual({
       providerUserId: "suunto-user",
       username: "denis",
@@ -329,9 +323,7 @@ describe("suuntoProvider", () => {
           Name: "stepcount",
           Sources: [
             {
-              Samples: [
-                { TimeISO8601: "2026-03-16T00:00:00Z", Value: 10000 },
-              ],
+              Samples: [{ TimeISO8601: "2026-03-16T00:00:00Z", Value: 10000 }],
             },
           ],
         },
@@ -339,9 +331,7 @@ describe("suuntoProvider", () => {
           Name: "energyconsumption",
           Sources: [
             {
-              Samples: [
-                { TimeISO8601: "2026-03-16T00:00:00Z", Value: 8368 },
-              ],
+              Samples: [{ TimeISO8601: "2026-03-16T00:00:00Z", Value: 8368 }],
             },
           ],
         },

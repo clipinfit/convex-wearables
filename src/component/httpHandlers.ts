@@ -30,17 +30,17 @@ export const oauthCallback = httpAction(async (ctx, request) => {
   const error = url.searchParams.get("error");
 
   if (error) {
-    return new Response(
-      JSON.stringify({ error: `OAuth error: ${error}` }),
-      { status: 400, headers: { "Content-Type": "application/json" } },
-    );
+    return new Response(JSON.stringify({ error: `OAuth error: ${error}` }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 
   if (!state || !code) {
-    return new Response(
-      JSON.stringify({ error: "Missing state or code parameter" }),
-      { status: 400, headers: { "Content-Type": "application/json" } },
-    );
+    return new Response(JSON.stringify({ error: "Missing state or code parameter" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 
   // Look up the state to find which provider and user this is for
@@ -49,10 +49,10 @@ export const oauthCallback = httpAction(async (ctx, request) => {
   });
 
   if (!oauthState) {
-    return new Response(
-      JSON.stringify({ error: "Invalid or expired OAuth state" }),
-      { status: 400, headers: { "Content-Type": "application/json" } },
-    );
+    return new Response(JSON.stringify({ error: "Invalid or expired OAuth state" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 
   // Return the state and code to be processed by the client-side handler.
@@ -80,7 +80,7 @@ export const stravaWebhookVerify = httpAction(async (_ctx, request) => {
   const url = new URL(request.url);
   const mode = url.searchParams.get("hub.mode");
   const challenge = url.searchParams.get("hub.challenge");
-  const verifyToken = url.searchParams.get("hub.verify_token");
+  const _verifyToken = url.searchParams.get("hub.verify_token");
 
   if (mode !== "subscribe" || !challenge) {
     return new Response("Invalid request", { status: 400 });
@@ -89,10 +89,10 @@ export const stravaWebhookVerify = httpAction(async (_ctx, request) => {
   // The verify token should match what was set during subscription creation.
   // For now, accept any verify token — the host app should validate this
   // in their configuration.
-  return new Response(
-    JSON.stringify({ "hub.challenge": challenge }),
-    { status: 200, headers: { "Content-Type": "application/json" } },
-  );
+  return new Response(JSON.stringify({ "hub.challenge": challenge }), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -106,7 +106,7 @@ export const stravaWebhookVerify = httpAction(async (_ctx, request) => {
  * We process activity creates/updates by fetching the full activity
  * and storing it. Deletes are handled by removing the corresponding event.
  */
-export const stravaWebhookEvent = httpAction(async (ctx, request) => {
+export const stravaWebhookEvent = httpAction(async (_ctx, request) => {
   try {
     const body = await request.json();
 
@@ -127,9 +127,7 @@ export const stravaWebhookEvent = httpAction(async (ctx, request) => {
 
     // For now, acknowledge the webhook. The actual processing will be
     // triggered by scheduling a syncConnection action for the affected user.
-    console.log(
-      `Strava webhook: ${aspect_type} activity for owner ${owner_id}`,
-    );
+    console.log(`Strava webhook: ${aspect_type} activity for owner ${owner_id}`);
 
     return new Response("OK", { status: 200 });
   } catch {

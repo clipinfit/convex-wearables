@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { query, internalMutation } from "./_generated/server";
+import { internalMutation, query } from "./_generated/server";
 import { providerName } from "./schema";
 
 // ---------------------------------------------------------------------------
@@ -82,9 +82,7 @@ export const upsert = internalMutation({
     if (args.externalId) {
       const existing = await ctx.db
         .query("menstrualCycles")
-        .withIndex("by_external_id", (idx) =>
-          idx.eq("externalId", args.externalId),
-        )
+        .withIndex("by_external_id", (idx) => idx.eq("externalId", args.externalId))
         .first();
       if (existing) {
         await ctx.db.patch(existing._id, args);
@@ -96,9 +94,7 @@ export const upsert = internalMutation({
     const existing = await ctx.db
       .query("menstrualCycles")
       .withIndex("by_user_date", (idx) =>
-        idx
-          .eq("userId", args.userId)
-          .eq("periodStartDate", args.periodStartDate),
+        idx.eq("userId", args.userId).eq("periodStartDate", args.periodStartDate),
       )
       .first();
 

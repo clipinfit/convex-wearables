@@ -181,9 +181,7 @@ describe("syncJobs", () => {
     const failedJobs = await t.run(async (ctx) => {
       return await ctx.db
         .query("syncJobs")
-        .withIndex("by_user_status", (idx) =>
-          idx.eq("userId", "user-1").eq("status", "failed"),
-        )
+        .withIndex("by_user_status", (idx) => idx.eq("userId", "user-1").eq("status", "failed"))
         .collect();
     });
 

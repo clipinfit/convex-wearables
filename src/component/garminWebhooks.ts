@@ -8,13 +8,13 @@
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { internalAction, type ActionCtx } from "./_generated/server";
+import { type ActionCtx, internalAction } from "./_generated/server";
 import {
+  type GarminPushPayload,
   normalizeActivity,
-  normalizeSleep,
   normalizeDaily,
   normalizeMCT,
-  type GarminPushPayload,
+  normalizeSleep,
 } from "./providers/garmin";
 
 /**
@@ -37,11 +37,7 @@ export const processPushPayload = internalAction({
         const garminUserId = activity.userId;
 
         // Find the connection for this Garmin user
-        const dataSourceId = await resolveDataSource(
-          ctx,
-          garminUserId,
-          activity.deviceName,
-        );
+        const dataSourceId = await resolveDataSource(ctx, garminUserId, activity.deviceName);
         if (!dataSourceId) continue;
 
         const event = normalizeActivity(activity);

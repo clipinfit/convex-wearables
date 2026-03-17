@@ -8,16 +8,16 @@
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import { action, internalAction } from "./_generated/server";
-import { providerName } from "./schema";
-import { getProvider } from "./providers/registry";
 import {
-  generateRandomString,
-  generateCodeChallenge,
   buildAuthorizationUrl,
   exchangeCodeForTokens,
+  generateCodeChallenge,
+  generateRandomString,
   refreshAccessToken,
 } from "./providers/oauth";
+import { getProvider } from "./providers/registry";
 import type { ProviderCredentials } from "./providers/types";
+import { providerName } from "./schema";
 
 // ---------------------------------------------------------------------------
 // Generate authorization URL

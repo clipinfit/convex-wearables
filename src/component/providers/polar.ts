@@ -2,15 +2,13 @@
  * Polar provider adapter — OAuth 2.0 + workout pull flow.
  */
 
+import { makeAuthenticatedRequest } from "./oauth";
 import type {
-  OAuthProviderConfig,
   NormalizedEvent,
-  OAuthTokenResponse,
+  OAuthProviderConfig,
   ProviderAdapter,
   ProviderCredentials,
-  ProviderUserInfo,
 } from "./types";
-import { makeAuthenticatedRequest } from "./oauth";
 
 const POLAR_API_BASE = "https://www.polaraccesslink.com";
 const POLAR_AUTHORIZE_URL = "https://flow.polar.com/oauth2/authorization";
@@ -114,7 +112,9 @@ function resolvePolarWorkoutType(sport: string, detailed?: string | null): strin
       return match[2];
     }
   }
-  const fallback = POLAR_WORKOUT_TYPE_MAPPINGS.find(([s, detail]) => s === sport && detail === null);
+  const fallback = POLAR_WORKOUT_TYPE_MAPPINGS.find(
+    ([s, detail]) => s === sport && detail === null,
+  );
   if (fallback) {
     return fallback[2];
   }
@@ -201,21 +201,14 @@ async function fetchPolarWorkouts(
   const records = Array.isArray(exercises) ? exercises : [];
   return records
     .map(normalizePolarExercise)
-    .filter(
-      (event) =>
-        event.startDatetime >= startDate &&
-        event.startDatetime <= endDate,
-    );
+    .filter((event) => event.startDatetime >= startDate && event.startDatetime <= endDate);
 }
 
 export const polarProvider: ProviderAdapter = {
   name: "polar",
   oauthConfig: buildPolarOAuthConfig,
   getUserInfo: async (_accessToken, tokenResponse) => ({
-    providerUserId:
-      tokenResponse?.x_user_id != null
-        ? String(tokenResponse.x_user_id)
-        : null,
+    providerUserId: tokenResponse?.x_user_id != null ? String(tokenResponse.x_user_id) : null,
     username: null,
   }),
   postConnect: async (accessToken, _tokenResponse, appUserId) => {

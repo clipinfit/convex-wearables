@@ -1,11 +1,6 @@
 import { v } from "convex/values";
-import {
-  query,
-  mutation,
-  internalQuery,
-  internalMutation,
-} from "./_generated/server";
-import { providerName, connectionStatus } from "./schema";
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { connectionStatus, providerName } from "./schema";
 
 // ---------------------------------------------------------------------------
 // Queries

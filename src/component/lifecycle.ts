@@ -40,9 +40,7 @@ export const deleteAllUserData = mutation({
       // Delete data points in batches
       let points = await ctx.db
         .query("dataPoints")
-        .withIndex("by_source_type_time", (idx) =>
-          idx.eq("dataSourceId", source._id),
-        )
+        .withIndex("by_source_type_time", (idx) => idx.eq("dataSourceId", source._id))
         .take(500);
       while (points.length > 0) {
         for (const p of points) {
@@ -50,9 +48,7 @@ export const deleteAllUserData = mutation({
         }
         points = await ctx.db
           .query("dataPoints")
-          .withIndex("by_source_type_time", (idx) =>
-            idx.eq("dataSourceId", source._id),
-          )
+          .withIndex("by_source_type_time", (idx) => idx.eq("dataSourceId", source._id))
           .take(500);
       }
       await ctx.db.delete(source._id);

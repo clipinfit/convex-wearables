@@ -13,14 +13,14 @@
  * - Body composition normalization
  */
 
+import { makeAuthenticatedRequest } from "./oauth";
 import type {
-  OAuthProviderConfig,
   NormalizedEvent,
+  OAuthProviderConfig,
   ProviderAdapter,
   ProviderCredentials,
   ProviderUserInfo,
 } from "./types";
-import { makeAuthenticatedRequest } from "./oauth";
 
 // ---------------------------------------------------------------------------
 // OAuth config
@@ -28,9 +28,7 @@ import { makeAuthenticatedRequest } from "./oauth";
 
 const API_BASE = "https://apis.garmin.com";
 
-export function garminOAuthConfig(
-  credentials: ProviderCredentials,
-): OAuthProviderConfig {
+export function garminOAuthConfig(credentials: ProviderCredentials): OAuthProviderConfig {
   return {
     endpoints: {
       authorizeUrl: "https://connect.garmin.com/oauth2Confirm",
@@ -344,9 +342,7 @@ export function normalizeSleep(sleep: GarminSleep): NormalizedEvent {
     sleepLightMinutes: sleep.lightSleepDurationInSeconds
       ? Math.floor(sleep.lightSleepDurationInSeconds / 60)
       : undefined,
-    sleepRemMinutes: sleep.remSleepInSeconds
-      ? Math.floor(sleep.remSleepInSeconds / 60)
-      : undefined,
+    sleepRemMinutes: sleep.remSleepInSeconds ? Math.floor(sleep.remSleepInSeconds / 60) : undefined,
     sleepAwakeMinutes: sleep.awakeDurationInSeconds
       ? Math.floor(sleep.awakeDurationInSeconds / 60)
       : undefined,
@@ -381,18 +377,17 @@ export interface GarminDailySummaryNormalized {
 export function normalizeDaily(daily: GarminDaily): GarminDailySummaryNormalized {
   const activeMinutes =
     ((daily.moderateIntensityDurationInSeconds ?? 0) +
-      (daily.vigorousIntensityDurationInSeconds ?? 0)) / 60 || undefined;
+      (daily.vigorousIntensityDurationInSeconds ?? 0)) /
+      60 || undefined;
 
   // Parse heart rate time-offset samples into absolute timestamps
   let heartRateSamples: { timestamp: number; value: number }[] | undefined;
   if (daily.timeOffsetHeartRateSamples) {
     const baseMs = daily.startTimeInSeconds * 1000;
-    heartRateSamples = Object.entries(daily.timeOffsetHeartRateSamples).map(
-      ([offsetStr, bpm]) => ({
-        timestamp: baseMs + Number(offsetStr) * 1000,
-        value: bpm,
-      }),
-    );
+    heartRateSamples = Object.entries(daily.timeOffsetHeartRateSamples).map(([offsetStr, bpm]) => ({
+      timestamp: baseMs + Number(offsetStr) * 1000,
+      value: bpm,
+    }));
   }
 
   const totalCalories =
@@ -402,7 +397,8 @@ export function normalizeDaily(daily: GarminDaily): GarminDailySummaryNormalized
 
   return {
     userId: daily.userId,
-    date: daily.calendarDate ?? new Date(daily.startTimeInSeconds * 1000).toISOString().split("T")[0],
+    date:
+      daily.calendarDate ?? new Date(daily.startTimeInSeconds * 1000).toISOString().split("T")[0],
     totalSteps: daily.steps,
     totalCalories,
     activeCalories: daily.activeKilocalories,
@@ -413,9 +409,10 @@ export function normalizeDaily(daily: GarminDaily): GarminDailySummaryNormalized
     minHeartRate: daily.minHeartRateInBeatsPerMinute,
     restingHeartRate: daily.restingHeartRateInBeatsPerMinute,
     avgStressLevel: daily.averageStressLevel,
-    bodyBattery: daily.bodyBatteryChargedValue != null && daily.bodyBatteryDrainedValue != null
-      ? daily.bodyBatteryChargedValue - daily.bodyBatteryDrainedValue
-      : undefined,
+    bodyBattery:
+      daily.bodyBatteryChargedValue != null && daily.bodyBatteryDrainedValue != null
+        ? daily.bodyBatteryChargedValue - daily.bodyBatteryDrainedValue
+        : undefined,
     activeMinutes: activeMinutes ? Math.round(activeMinutes) : undefined,
     heartRateSamples,
   };
@@ -549,23 +546,25 @@ export async function triggerBackfill(
   endTimeSeconds: number,
 ): Promise<void> {
   const validTypes = [
-    "activities", "activityDetails", "dailies", "epochs",
-    "sleeps", "bodyComps", "hrv", "stressDetails",
-    "respiration", "pulseOx",
+    "activities",
+    "activityDetails",
+    "dailies",
+    "epochs",
+    "sleeps",
+    "bodyComps",
+    "hrv",
+    "stressDetails",
+    "respiration",
+    "pulseOx",
   ];
   if (!validTypes.includes(dataType)) {
     throw new Error(`Invalid backfill data type: ${dataType}`);
   }
 
-  await makeAuthenticatedRequest(
-    API_BASE,
-    `/wellness-api/rest/backfill/${dataType}`,
-    accessToken,
-    {
-      params: {
-        summaryStartTimeInSeconds: String(startTimeSeconds),
-        summaryEndTimeInSeconds: String(endTimeSeconds),
-      },
+  await makeAuthenticatedRequest(API_BASE, `/wellness-api/rest/backfill/${dataType}`, accessToken, {
+    params: {
+      summaryStartTimeInSeconds: String(startTimeSeconds),
+      summaryEndTimeInSeconds: String(endTimeSeconds),
     },
-  );
+  });
 }

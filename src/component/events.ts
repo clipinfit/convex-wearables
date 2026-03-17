@@ -1,6 +1,6 @@
 import { v } from "convex/values";
-import { query, internalQuery, internalMutation } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
+import { internalMutation, internalQuery, query } from "./_generated/server";
 import { eventCategory } from "./schema";
 
 // ---------------------------------------------------------------------------
@@ -42,36 +42,39 @@ export const getEvents = query({
       }
 
       if (args.startDate !== undefined && args.endDate !== undefined) {
+        const { startDate, endDate } = args;
         return ctx.db
           .query("events")
           .withIndex("by_user_category_time", (idx) =>
             idx
               .eq("userId", args.userId)
               .eq("category", args.category)
-              .gte("startDatetime", args.startDate!)
-              .lte("startDatetime", args.endDate!),
+              .gte("startDatetime", startDate)
+              .lte("startDatetime", endDate),
           )
           .order("desc");
       }
       if (args.startDate !== undefined) {
+        const { startDate } = args;
         return ctx.db
           .query("events")
           .withIndex("by_user_category_time", (idx) =>
             idx
               .eq("userId", args.userId)
               .eq("category", args.category)
-              .gte("startDatetime", args.startDate!),
+              .gte("startDatetime", startDate),
           )
           .order("desc");
       }
       if (args.endDate !== undefined) {
+        const { endDate } = args;
         return ctx.db
           .query("events")
           .withIndex("by_user_category_time", (idx) =>
             idx
               .eq("userId", args.userId)
               .eq("category", args.category)
-              .lte("startDatetime", args.endDate!),
+              .lte("startDatetime", endDate),
           )
           .order("desc");
       }
@@ -89,9 +92,7 @@ export const getEvents = query({
     const hasMore = results.length > limit;
     const events = hasMore ? results.slice(0, limit) : results;
     const nextCursor =
-      hasMore && events.length > 0
-        ? String(events[events.length - 1].startDatetime)
-        : null;
+      hasMore && events.length > 0 ? String(events[events.length - 1].startDatetime) : null;
 
     return { events, nextCursor, hasMore };
   },
@@ -180,9 +181,7 @@ export const storeEvent = internalMutation({
     if (args.externalId) {
       const existing = await ctx.db
         .query("events")
-        .withIndex("by_external_id", (idx) =>
-          idx.eq("externalId", args.externalId),
-        )
+        .withIndex("by_external_id", (idx) => idx.eq("externalId", args.externalId))
         .first();
       if (existing) {
         // Update existing record
@@ -227,9 +226,7 @@ export const storeEventBatch = internalMutation({
       if (event.externalId) {
         const existing = await ctx.db
           .query("events")
-          .withIndex("by_external_id", (idx) =>
-            idx.eq("externalId", event.externalId),
-          )
+          .withIndex("by_external_id", (idx) => idx.eq("externalId", event.externalId))
           .first();
         if (existing) {
           await ctx.db.patch(existing._id, event);
