@@ -15,6 +15,8 @@
 
 import { makeAuthenticatedRequest } from "./oauth";
 import type {
+  NormalizedDataPoint,
+  NormalizedDailySummary,
   NormalizedEvent,
   OAuthProviderConfig,
   ProviderAdapter,
@@ -85,6 +87,7 @@ export interface GarminSleep {
   averageHeartRate?: number;
   lowestHeartRate?: number;
   avgOxygenSaturation?: number;
+  respirationAvg?: number;
   overallSleepScore?: { value?: number };
   validation?: string;
   sleepLevelsMap?: Record<string, Array<{ startTimeInSeconds: number; endTimeInSeconds: number }>>;
@@ -136,6 +139,85 @@ export interface GarminBodyComp {
   muscleMassInGrams?: number;
 }
 
+export interface GarminHrv {
+  userId: string;
+  summaryId?: string;
+  startTimeInSeconds: number;
+  calendarDate?: string;
+  lastNightAvg?: number;
+  hrvValues?: Record<string, number>;
+}
+
+export interface GarminStressDetails {
+  userId: string;
+  summaryId?: string;
+  startTimeInSeconds: number;
+  stressLevelValues?: Record<string, number>;
+  bodyBatteryValues?: Record<string, number>;
+}
+
+export interface GarminRespiration {
+  userId: string;
+  summaryId?: string;
+  startTimeInSeconds: number;
+  calendarDate?: string;
+  avgWakingRespirationValue?: number;
+  timeOffsetRespirationRateValues?: Record<string, number>;
+  timeOffsetRespirationValues?: Record<string, number>;
+}
+
+export interface GarminPulseOx {
+  userId: string;
+  summaryId?: string;
+  startTimeInSeconds: number;
+  calendarDate?: string;
+  avgSpo2?: number;
+  timeOffsetSpo2Values?: Record<string, number>;
+}
+
+export interface GarminBloodPressure {
+  userId: string;
+  summaryId?: string;
+  measurementTimestampGMT?: number;
+  startTimeInSeconds?: number;
+  systolic?: number;
+  diastolic?: number;
+}
+
+export interface GarminUserMetrics {
+  userId: string;
+  summaryId?: string;
+  calendarDate?: string;
+  vo2Max?: number;
+  fitnessAge?: number;
+}
+
+export interface GarminSkinTemp {
+  userId: string;
+  summaryId?: string;
+  startTimeInSeconds: number;
+  skinTemperature?: number;
+}
+
+export interface GarminHealthSnapshot {
+  userId: string;
+  summaryId?: string;
+  startTimeInSeconds: number;
+  heartRate?: number;
+  hrv?: number;
+  stress?: number;
+  spo2?: number;
+  respiration?: number;
+}
+
+export interface GarminMoveIQ {
+  userId: string;
+  summaryId?: string;
+  startTimeInSeconds: number;
+  durationInSeconds?: number;
+  activityType?: string;
+}
+
 export interface GarminMCTSummary {
   userId: string;
   summaryId: string;
@@ -164,13 +246,71 @@ export interface GarminMCTSummary {
 
 export interface GarminPushPayload {
   activities?: GarminActivity[];
+  activityDetails?: GarminActivity[];
   sleeps?: GarminSleep[];
   dailies?: GarminDaily[];
   epochs?: GarminEpoch[];
   bodyComps?: GarminBodyComp[];
+  hrv?: GarminHrv[];
+  stressDetails?: GarminStressDetails[];
+  respiration?: GarminRespiration[];
+  pulseOx?: GarminPulseOx[];
+  bloodPressures?: GarminBloodPressure[];
+  userMetrics?: GarminUserMetrics[];
+  skinTemp?: GarminSkinTemp[];
+  healthSnapshot?: GarminHealthSnapshot[];
+  moveiq?: GarminMoveIQ[];
   menstrualCycleTracking?: GarminMCTSummary[];
+  mct?: GarminMCTSummary[];
   deregistrations?: Array<{ userId: string }>;
   userPermissionsChange?: Array<{ userId: string; permissions: string[] }>;
+}
+
+function isoDateFromTimestamp(timestampMs: number): string {
+  return new Date(timestampMs).toISOString().split("T")[0] ?? "";
+}
+
+function isoDateFromCalendarDate(
+  calendarDate: string | undefined,
+  fallbackTimestampMs: number,
+): string {
+  return calendarDate ?? isoDateFromTimestamp(fallbackTimestampMs);
+}
+
+function calendarDateToMiddayTimestamp(calendarDate: string | undefined): number | null {
+  if (!calendarDate) {
+    return null;
+  }
+
+  const timestamp = Date.parse(`${calendarDate}T12:00:00Z`);
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function buildOffsetDataPoints(
+  values: Record<string, number> | undefined,
+  startTimeInSeconds: number,
+  seriesType: string,
+  externalIdPrefix?: string,
+): NormalizedDataPoint[] {
+  if (!values) {
+    return [];
+  }
+
+  return Object.entries(values).reduce<NormalizedDataPoint[]>((points, [offsetStr, value]) => {
+    const offsetSeconds = Number(offsetStr);
+    if (!Number.isFinite(offsetSeconds) || !Number.isFinite(value)) {
+      return points;
+    }
+
+    points.push({
+      seriesType,
+      recordedAt: (startTimeInSeconds + offsetSeconds) * 1000,
+      value,
+      externalId: externalIdPrefix ? `${externalIdPrefix}:${offsetStr}` : undefined,
+    });
+
+    return points;
+  }, []);
 }
 
 // ---------------------------------------------------------------------------
@@ -351,6 +491,25 @@ export function normalizeSleep(sleep: GarminSleep): NormalizedEvent {
   };
 }
 
+export function normalizeSleepSummary(sleep: GarminSleep): NormalizedDailySummary {
+  return {
+    date: isoDateFromTimestamp(sleep.startTimeInSeconds * 1000),
+    category: "sleep",
+    sleepDurationMinutes: Math.floor(sleep.durationInSeconds / 60),
+    sleepEfficiency: sleep.overallSleepScore?.value,
+    deepSleepMinutes: sleep.deepSleepDurationInSeconds
+      ? Math.floor(sleep.deepSleepDurationInSeconds / 60)
+      : undefined,
+    lightSleepMinutes: sleep.lightSleepDurationInSeconds
+      ? Math.floor(sleep.lightSleepDurationInSeconds / 60)
+      : undefined,
+    remSleepMinutes: sleep.remSleepInSeconds ? Math.floor(sleep.remSleepInSeconds / 60) : undefined,
+    awakeDuringMinutes: sleep.awakeDurationInSeconds
+      ? Math.floor(sleep.awakeDurationInSeconds / 60)
+      : undefined,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Normalization — Daily Summary
 // ---------------------------------------------------------------------------
@@ -415,6 +574,391 @@ export function normalizeDaily(daily: GarminDaily): GarminDailySummaryNormalized
         : undefined,
     activeMinutes: activeMinutes ? Math.round(activeMinutes) : undefined,
     heartRateSamples,
+  };
+}
+
+export function normalizeDailyRecoverySummary(daily: GarminDaily): NormalizedDailySummary {
+  const normalized = normalizeDaily(daily);
+  return {
+    date: normalized.date,
+    category: "recovery",
+    restingHeartRate: normalized.restingHeartRate,
+    avgStressLevel: normalized.avgStressLevel,
+    bodyBattery: normalized.bodyBattery,
+  };
+}
+
+export function normalizeEpochDataPoints(epoch: GarminEpoch): NormalizedDataPoint[] {
+  const recordedAt = epoch.startTimeInSeconds * 1000;
+  const points: NormalizedDataPoint[] = [];
+
+  if (epoch.meanHeartRateInBeatsPerMinute != null) {
+    points.push({
+      seriesType: "heart_rate",
+      recordedAt,
+      value: epoch.meanHeartRateInBeatsPerMinute,
+      externalId: epoch.summaryId ? `${epoch.summaryId}:heart_rate` : undefined,
+    });
+  }
+
+  if (epoch.steps != null) {
+    points.push({
+      seriesType: "steps",
+      recordedAt,
+      value: epoch.steps,
+      externalId: epoch.summaryId ? `${epoch.summaryId}:steps` : undefined,
+    });
+  }
+
+  if (epoch.activeKilocalories != null) {
+    points.push({
+      seriesType: "energy",
+      recordedAt,
+      value: epoch.activeKilocalories,
+      externalId: epoch.summaryId ? `${epoch.summaryId}:energy` : undefined,
+    });
+  }
+
+  return points;
+}
+
+export function normalizeBodyCompositionDataPoints(
+  bodyComp: GarminBodyComp,
+): NormalizedDataPoint[] {
+  const recordedAt = bodyComp.measurementTimeInSeconds * 1000;
+  const points: NormalizedDataPoint[] = [];
+
+  if (bodyComp.weightInGrams != null) {
+    points.push({
+      seriesType: "weight",
+      recordedAt,
+      value: bodyComp.weightInGrams / 1000,
+      externalId: bodyComp.summaryId ? `${bodyComp.summaryId}:weight` : undefined,
+    });
+  }
+
+  if (bodyComp.bodyFatInPercent != null) {
+    points.push({
+      seriesType: "body_fat_percentage",
+      recordedAt,
+      value: bodyComp.bodyFatInPercent,
+      externalId: bodyComp.summaryId ? `${bodyComp.summaryId}:body_fat_percentage` : undefined,
+    });
+  }
+
+  if (bodyComp.bodyMassIndex != null) {
+    points.push({
+      seriesType: "body_mass_index",
+      recordedAt,
+      value: bodyComp.bodyMassIndex,
+      externalId: bodyComp.summaryId ? `${bodyComp.summaryId}:body_mass_index` : undefined,
+    });
+  }
+
+  if (bodyComp.muscleMassInGrams != null) {
+    points.push({
+      seriesType: "skeletal_muscle_mass",
+      recordedAt,
+      value: bodyComp.muscleMassInGrams / 1000,
+      externalId: bodyComp.summaryId ? `${bodyComp.summaryId}:skeletal_muscle_mass` : undefined,
+    });
+  }
+
+  return points;
+}
+
+export function normalizeBodyCompositionSummary(bodyComp: GarminBodyComp): NormalizedDailySummary {
+  return {
+    date: isoDateFromTimestamp(bodyComp.measurementTimeInSeconds * 1000),
+    category: "body",
+    weight: bodyComp.weightInGrams != null ? bodyComp.weightInGrams / 1000 : undefined,
+    bodyFatPercentage: bodyComp.bodyFatInPercent,
+    bodyMassIndex: bodyComp.bodyMassIndex,
+  };
+}
+
+export function normalizeHrvDataPoints(hrv: GarminHrv): NormalizedDataPoint[] {
+  if (!hrv.startTimeInSeconds) {
+    return [];
+  }
+
+  const points: NormalizedDataPoint[] = [];
+  if (hrv.lastNightAvg != null) {
+    points.push({
+      seriesType: "heart_rate_variability_sdnn",
+      recordedAt: hrv.startTimeInSeconds * 1000,
+      value: hrv.lastNightAvg,
+      externalId: hrv.summaryId,
+    });
+  }
+
+  points.push(
+    ...buildOffsetDataPoints(
+      hrv.hrvValues,
+      hrv.startTimeInSeconds,
+      "heart_rate_variability_sdnn",
+      hrv.summaryId,
+    ),
+  );
+
+  return points;
+}
+
+export function normalizeHrvSummary(hrv: GarminHrv): NormalizedDailySummary | null {
+  if (hrv.lastNightAvg == null || !hrv.startTimeInSeconds) {
+    return null;
+  }
+
+  return {
+    date: isoDateFromCalendarDate(hrv.calendarDate, hrv.startTimeInSeconds * 1000),
+    category: "recovery",
+    hrvAvg: hrv.lastNightAvg,
+  };
+}
+
+export function normalizeStressDataPoints(stress: GarminStressDetails): NormalizedDataPoint[] {
+  if (!stress.startTimeInSeconds) {
+    return [];
+  }
+
+  return [
+    ...buildOffsetDataPoints(
+      stress.stressLevelValues,
+      stress.startTimeInSeconds,
+      "garmin_stress_level",
+      stress.summaryId ? `${stress.summaryId}:stress` : undefined,
+    ),
+    ...buildOffsetDataPoints(
+      stress.bodyBatteryValues,
+      stress.startTimeInSeconds,
+      "garmin_body_battery",
+      stress.summaryId ? `${stress.summaryId}:body_battery` : undefined,
+    ),
+  ];
+}
+
+export function normalizeRespirationDataPoints(
+  respiration: GarminRespiration,
+): NormalizedDataPoint[] {
+  if (!respiration.startTimeInSeconds) {
+    return [];
+  }
+
+  const points: NormalizedDataPoint[] = [];
+  if (respiration.avgWakingRespirationValue != null) {
+    points.push({
+      seriesType: "respiratory_rate",
+      recordedAt: respiration.startTimeInSeconds * 1000,
+      value: respiration.avgWakingRespirationValue,
+      externalId: respiration.summaryId,
+    });
+  }
+
+  points.push(
+    ...buildOffsetDataPoints(
+      respiration.timeOffsetRespirationRateValues ?? respiration.timeOffsetRespirationValues,
+      respiration.startTimeInSeconds,
+      "respiratory_rate",
+      respiration.summaryId,
+    ),
+  );
+
+  return points;
+}
+
+export function normalizePulseOxDataPoints(pulseOx: GarminPulseOx): NormalizedDataPoint[] {
+  if (!pulseOx.startTimeInSeconds) {
+    return [];
+  }
+
+  const points: NormalizedDataPoint[] = [];
+  if (pulseOx.avgSpo2 != null) {
+    points.push({
+      seriesType: "oxygen_saturation",
+      recordedAt: pulseOx.startTimeInSeconds * 1000,
+      value: pulseOx.avgSpo2,
+      externalId: pulseOx.summaryId,
+    });
+  }
+
+  points.push(
+    ...buildOffsetDataPoints(
+      pulseOx.timeOffsetSpo2Values,
+      pulseOx.startTimeInSeconds,
+      "oxygen_saturation",
+      pulseOx.summaryId,
+    ),
+  );
+
+  return points;
+}
+
+export function normalizePulseOxSummary(pulseOx: GarminPulseOx): NormalizedDailySummary | null {
+  if (pulseOx.avgSpo2 == null || !pulseOx.startTimeInSeconds) {
+    return null;
+  }
+
+  return {
+    date: isoDateFromCalendarDate(pulseOx.calendarDate, pulseOx.startTimeInSeconds * 1000),
+    category: "recovery",
+    spo2Avg: pulseOx.avgSpo2,
+  };
+}
+
+export function normalizeBloodPressureDataPoints(
+  bloodPressure: GarminBloodPressure,
+): NormalizedDataPoint[] {
+  const measurementSeconds =
+    bloodPressure.measurementTimestampGMT ?? bloodPressure.startTimeInSeconds;
+  if (!measurementSeconds) {
+    return [];
+  }
+
+  const recordedAt = measurementSeconds * 1000;
+  const points: NormalizedDataPoint[] = [];
+
+  if (bloodPressure.systolic != null) {
+    points.push({
+      seriesType: "blood_pressure_systolic",
+      recordedAt,
+      value: bloodPressure.systolic,
+      externalId: bloodPressure.summaryId ? `${bloodPressure.summaryId}:systolic` : undefined,
+    });
+  }
+
+  if (bloodPressure.diastolic != null) {
+    points.push({
+      seriesType: "blood_pressure_diastolic",
+      recordedAt,
+      value: bloodPressure.diastolic,
+      externalId: bloodPressure.summaryId ? `${bloodPressure.summaryId}:diastolic` : undefined,
+    });
+  }
+
+  return points;
+}
+
+export function normalizeUserMetricsDataPoints(
+  userMetrics: GarminUserMetrics,
+): NormalizedDataPoint[] {
+  const recordedAt = calendarDateToMiddayTimestamp(userMetrics.calendarDate);
+  if (recordedAt === null) {
+    return [];
+  }
+
+  const points: NormalizedDataPoint[] = [];
+  if (userMetrics.vo2Max != null) {
+    points.push({
+      seriesType: "vo2_max",
+      recordedAt,
+      value: userMetrics.vo2Max,
+      externalId: userMetrics.summaryId ? `${userMetrics.summaryId}:vo2_max` : undefined,
+    });
+  }
+
+  if (userMetrics.fitnessAge != null) {
+    points.push({
+      seriesType: "garmin_fitness_age",
+      recordedAt,
+      value: userMetrics.fitnessAge,
+      externalId: userMetrics.summaryId ? `${userMetrics.summaryId}:fitness_age` : undefined,
+    });
+  }
+
+  return points;
+}
+
+export function normalizeSkinTemperatureDataPoints(
+  skinTemp: GarminSkinTemp,
+): NormalizedDataPoint[] {
+  if (!skinTemp.startTimeInSeconds || skinTemp.skinTemperature == null) {
+    return [];
+  }
+
+  return [
+    {
+      seriesType: "skin_temperature",
+      recordedAt: skinTemp.startTimeInSeconds * 1000,
+      value: skinTemp.skinTemperature,
+      externalId: skinTemp.summaryId,
+    },
+  ];
+}
+
+export function normalizeHealthSnapshotDataPoints(
+  snapshot: GarminHealthSnapshot,
+): NormalizedDataPoint[] {
+  if (!snapshot.startTimeInSeconds) {
+    return [];
+  }
+
+  const recordedAt = snapshot.startTimeInSeconds * 1000;
+  const points: NormalizedDataPoint[] = [];
+
+  if (snapshot.heartRate != null) {
+    points.push({
+      seriesType: "heart_rate",
+      recordedAt,
+      value: snapshot.heartRate,
+      externalId: snapshot.summaryId ? `${snapshot.summaryId}:heart_rate` : undefined,
+    });
+  }
+
+  if (snapshot.hrv != null) {
+    points.push({
+      seriesType: "heart_rate_variability_sdnn",
+      recordedAt,
+      value: snapshot.hrv,
+      externalId: snapshot.summaryId ? `${snapshot.summaryId}:hrv` : undefined,
+    });
+  }
+
+  if (snapshot.stress != null) {
+    points.push({
+      seriesType: "garmin_stress_level",
+      recordedAt,
+      value: snapshot.stress,
+      externalId: snapshot.summaryId ? `${snapshot.summaryId}:stress` : undefined,
+    });
+  }
+
+  if (snapshot.spo2 != null) {
+    points.push({
+      seriesType: "oxygen_saturation",
+      recordedAt,
+      value: snapshot.spo2,
+      externalId: snapshot.summaryId ? `${snapshot.summaryId}:spo2` : undefined,
+    });
+  }
+
+  if (snapshot.respiration != null) {
+    points.push({
+      seriesType: "respiratory_rate",
+      recordedAt,
+      value: snapshot.respiration,
+      externalId: snapshot.summaryId ? `${snapshot.summaryId}:respiration` : undefined,
+    });
+  }
+
+  return points;
+}
+
+export function normalizeMoveIQ(moveIQ: GarminMoveIQ): NormalizedEvent {
+  const startMs = moveIQ.startTimeInSeconds * 1000;
+  const durationSeconds = moveIQ.durationInSeconds ?? 0;
+  const endMs = startMs + durationSeconds * 1000;
+  const type = moveIQ.activityType ? `moveiq_${moveIQ.activityType.toLowerCase()}` : "moveiq";
+
+  return {
+    category: "workout",
+    type,
+    sourceName: "Garmin",
+    durationSeconds,
+    startDatetime: startMs,
+    endDatetime: endMs,
+    externalId: moveIQ.summaryId
+      ? `garmin-moveiq-${moveIQ.summaryId}`
+      : `garmin-moveiq-${moveIQ.startTimeInSeconds}-${type}`,
   };
 }
 
@@ -556,6 +1100,12 @@ export async function triggerBackfill(
     "stressDetails",
     "respiration",
     "pulseOx",
+    "bloodPressures",
+    "userMetrics",
+    "skinTemp",
+    "healthSnapshot",
+    "moveiq",
+    "mct",
   ];
   if (!validTypes.includes(dataType)) {
     throw new Error(`Invalid backfill data type: ${dataType}`);
