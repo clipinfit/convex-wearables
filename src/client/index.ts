@@ -502,7 +502,7 @@ export function registerRoutes(
 
         try {
           await ctx.runAction(component.garminWebhooks.processPushPayload, {
-            payload,
+            payloadJson: JSON.stringify(payload),
             garminClientId: garminClientId ?? "",
           });
 

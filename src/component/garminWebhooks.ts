@@ -35,6 +35,19 @@ import {
 
 const DATA_POINT_BATCH_SIZE = 100;
 
+function decodePushPayload(args: {
+  payload?: unknown;
+  payloadJson?: string;
+}): GarminPushPayload {
+  if (args.payloadJson !== undefined) {
+    return JSON.parse(args.payloadJson) as GarminPushPayload;
+  }
+  if (args.payload !== undefined) {
+    return args.payload as GarminPushPayload;
+  }
+  throw new Error("Garmin push payload is required");
+}
+
 /**
  * Process a Garmin push webhook payload.
  *
@@ -42,11 +55,12 @@ const DATA_POINT_BATCH_SIZE = 100;
  */
 export const processPushPayload = action({
   args: {
-    payload: v.any(),
+    payload: v.optional(v.any()),
+    payloadJson: v.optional(v.string()),
     garminClientId: v.string(),
   },
   handler: async (ctx, args) => {
-    const payload = args.payload as GarminPushPayload;
+    const payload = decodePushPayload(args);
     const signalBuckets = new Map<string, Set<string>>();
 
     await processActivityEntries(ctx, payload.activities, "activities", signalBuckets);

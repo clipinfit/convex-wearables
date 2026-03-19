@@ -385,6 +385,62 @@ describe("garminWebhooks", () => {
     expect(connection?.scope).toBe("HEALTH_EXPORT");
     expect(connection?.status).toBe("revoked");
   });
+
+  it("accepts stringified daily payloads with oversized heart-rate sample maps", async () => {
+    const t = createTest();
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("connections", {
+        userId: "user-3",
+        provider: "garmin",
+        providerUserId: "garmin-user-3",
+        accessToken: "garmin-token",
+        status: "active",
+      });
+    });
+
+    const dayStart = Math.floor(Date.parse("2026-03-17T00:00:00Z") / 1000);
+    const timeOffsetHeartRateSamples = Object.fromEntries(
+      Array.from({ length: 1100 }, (_, index) => [String(index * 15), 60 + (index % 40)]),
+    );
+
+    await t.action(api.garminWebhooks.processPushPayload, {
+      garminClientId: "garmin-client",
+      payloadJson: JSON.stringify({
+        dailies: [
+          {
+            userId: "garmin-user-3",
+            summaryId: "daily-large-1",
+            startTimeInSeconds: dayStart,
+            durationInSeconds: 24 * 60 * 60,
+            calendarDate: "2026-03-17",
+            restingHeartRateInBeatsPerMinute: 47,
+            timeOffsetHeartRateSamples,
+          },
+        ],
+      }),
+    });
+
+    const result = await t.run(async (ctx) => {
+      const dataPoints = await ctx.db.query("dataPoints").collect();
+      const summaries = await ctx.db.query("dailySummaries").collect();
+      return { dataPoints, summaries };
+    });
+
+    expect(result.dataPoints.filter((point) => point.seriesType === "heart_rate")).toHaveLength(
+      1100,
+    );
+    expect(
+      result.dataPoints.filter((point) => point.seriesType === "resting_heart_rate"),
+    ).toHaveLength(1);
+    expect(
+      result.summaries.find(
+        (summary) => summary.category === "recovery" && summary.date === "2026-03-17",
+      ),
+    ).toMatchObject({
+      restingHeartRate: 47,
+    });
+  });
 });
 
 describe("garminBackfill", () => {
