@@ -41,7 +41,10 @@ describe("lifecycle", () => {
           totalSteps: 10000,
         });
         await ctx.db.insert("syncJobs", {
+          connectionId: connId,
           userId: "user-1",
+          provider: "garmin",
+          idempotencyKey: "lifecycle-1",
           status: "completed",
           startedAt: 1710000000000,
         });

@@ -296,6 +296,8 @@ describe("suuntoProvider", () => {
             LightSleepDuration: 14400,
             REMSleepDuration: 5400,
             SleepQualityScore: 84,
+            HRAvg: 48,
+            HRMin: 41,
             SleepId: 55,
           },
         },
@@ -374,6 +376,8 @@ describe("suuntoProvider", () => {
       sleepTotalDurationMinutes: 450,
       sleepTimeInBedMinutes: 480,
       sleepAwakeMinutes: 30,
+      heartRateAvg: 48,
+      heartRateMin: 41,
     });
 
     expect(points.map((point) => point.seriesType)).toEqual([

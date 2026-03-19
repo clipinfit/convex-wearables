@@ -1,5 +1,6 @@
 import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
+import { internal } from "./_generated/api";
 import schema from "./schema";
 import { modules } from "./test.setup";
 
@@ -117,6 +118,49 @@ describe("events", () => {
         return await ctx.db.get(id1);
       });
       expect(event?.distance).toBe(5500);
+    });
+
+    it("deduplicates batch writes by source + start + end when externalId is missing", async () => {
+      const t = convexTest(schema, modules);
+      const dsId = await seedDataSource(t);
+
+      await t.run(async (ctx) => {
+        await ctx.db.insert("events", {
+          dataSourceId: dsId,
+          userId: "user-1",
+          category: "workout",
+          type: "running",
+          startDatetime: 1710000000000,
+          endDatetime: 1710003600000,
+          distance: 5000,
+        });
+      });
+
+      await t.mutation(internal.events.storeEventBatch, {
+        events: [
+          {
+            dataSourceId: dsId,
+            userId: "user-1",
+            category: "workout",
+            type: "running",
+            startDatetime: 1710000000000,
+            endDatetime: 1710003600000,
+            distance: 5500,
+          },
+        ],
+      });
+
+      const events = await t.run(async (ctx) => {
+        return await ctx.db
+          .query("events")
+          .withIndex("by_user_category_time", (idx) =>
+            idx.eq("userId", "user-1").eq("category", "workout"),
+          )
+          .collect();
+      });
+
+      expect(events).toHaveLength(1);
+      expect(events[0].distance).toBe(5500);
     });
   });
 

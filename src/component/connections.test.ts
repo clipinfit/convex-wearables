@@ -204,14 +204,14 @@ describe("connections", () => {
       const t = convexTest(schema, modules);
 
       await t.run(async (ctx) => {
-        await ctx.db.insert("connections", {
+        const garminConnectionId = await ctx.db.insert("connections", {
           userId: "user-1",
           provider: "garmin",
           accessToken: "garmin-token",
           status: "active",
           lastSyncedAt: 1_000,
         });
-        await ctx.db.insert("connections", {
+        const stravaConnectionId = await ctx.db.insert("connections", {
           userId: "user-1",
           provider: "strava",
           accessToken: "strava-token",
@@ -220,14 +220,18 @@ describe("connections", () => {
         });
 
         await ctx.db.insert("syncJobs", {
+          connectionId: garminConnectionId,
           userId: "user-1",
           provider: "garmin",
+          idempotencyKey: "garmin-1",
           status: "completed",
           startedAt: 100,
         });
         await ctx.db.insert("syncJobs", {
+          connectionId: stravaConnectionId,
           userId: "user-1",
           provider: "strava",
+          idempotencyKey: "strava-1",
           status: "failed",
           startedAt: 200,
           error: "rate limited",
