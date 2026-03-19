@@ -36,6 +36,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@convex-dev/workflow": "^0.3.6",
     "convex-helpers": ">=0.1.99"
   },
   "peerDependencies": {

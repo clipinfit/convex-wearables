@@ -35,21 +35,22 @@ export const eventCategory = v.union(v.literal("workout"), v.literal("sleep"));
  * Sync job status.
  */
 export const syncJobStatus = v.union(
-  v.literal("pending"),
+  v.literal("queued"),
   v.literal("running"),
   v.literal("completed"),
   v.literal("failed"),
+  v.literal("canceled"),
 );
 
 /**
  * Backfill job status.
  */
 export const backfillStatus = v.union(
-  v.literal("pending"),
+  v.literal("queued"),
   v.literal("running"),
   v.literal("completed"),
   v.literal("failed"),
-  v.literal("stuck"),
+  v.literal("canceled"),
 );
 
 // ---------------------------------------------------------------------------
@@ -74,6 +75,7 @@ export default defineSchema({
   })
     .index("by_user", ["userId"])
     .index("by_user_provider", ["userId", "provider"])
+    .index("by_provider_user", ["provider", "providerUserId"])
     .index("by_status", ["status"]),
 
   // -------------------------------------------------------------------------
@@ -213,18 +215,32 @@ export default defineSchema({
   // Sync Jobs — workflow tracking for data syncs
   // -------------------------------------------------------------------------
   syncJobs: defineTable({
+    connectionId: v.id("connections"),
     userId: v.string(),
-    provider: v.optional(providerName),
+    provider: providerName,
+    mode: v.optional(v.union(v.literal("manual"), v.literal("cron"), v.literal("webhook"))),
+    triggerSource: v.optional(v.string()),
+    idempotencyKey: v.string(),
     status: syncJobStatus,
     startedAt: v.number(), // unix ms
     completedAt: v.optional(v.number()),
     error: v.optional(v.string()),
     recordsProcessed: v.optional(v.number()),
+    workflowId: v.optional(v.string()),
+    windowStart: v.optional(v.number()),
+    windowEnd: v.optional(v.number()),
+    attempt: v.optional(v.number()),
+    lastHeartbeatAt: v.optional(v.number()),
+    cursor: v.optional(v.string()),
+    currentPhase: v.optional(v.union(v.literal("events"), v.literal("dataPoints"), v.literal("summaries"))),
   })
     .index("by_user", ["userId"])
+    .index("by_connection", ["connectionId"])
     .index("by_user_provider", ["userId", "provider"])
     .index("by_user_status", ["userId", "status"])
-    .index("by_status", ["status"]),
+    .index("by_status", ["status"])
+    .index("by_idempotency_key", ["idempotencyKey"])
+    .index("by_workflow", ["workflowId"]),
 
   // -------------------------------------------------------------------------
   // OAuth States — temporary state for OAuth PKCE flows
@@ -244,7 +260,10 @@ export default defineSchema({
   providerSettings: defineTable({
     provider: providerName,
     isEnabled: v.boolean(),
-    // Credentials stored via globals pattern (not here — passed via client config)
+    clientId: v.optional(v.string()),
+    clientSecret: v.optional(v.string()),
+    subscriptionKey: v.optional(v.string()),
+    updatedAt: v.optional(v.number()),
   }).index("by_provider", ["provider"]),
 
   // -------------------------------------------------------------------------
@@ -297,13 +316,22 @@ export default defineSchema({
     connectionId: v.id("connections"),
     userId: v.string(),
     provider: providerName,
-    dataType: v.string(), // "dailies", "epochs", "sleeps", etc.
+    dataType: v.string(), // "full" for a full run; current type tracked separately
     status: backfillStatus,
     startedAt: v.number(),
     completedAt: v.optional(v.number()),
     error: v.optional(v.string()),
+    workflowId: v.optional(v.string()),
+    windowStart: v.optional(v.number()),
+    windowEnd: v.optional(v.number()),
+    currentDataType: v.optional(v.string()),
+    currentAttempt: v.optional(v.number()),
+    currentEventId: v.optional(v.string()),
+    completedDataTypes: v.optional(v.array(v.string())),
+    lastHeartbeatAt: v.optional(v.number()),
   })
     .index("by_connection", ["connectionId"])
     .index("by_connection_type", ["connectionId", "dataType"])
-    .index("by_status", ["status"]),
+    .index("by_status", ["status"])
+    .index("by_workflow", ["workflowId"]),
 });
