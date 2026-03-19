@@ -2,7 +2,7 @@
 
 A [Convex component](https://docs.convex.dev/components) for wearable device integrations. Sync health data from **Garmin, Strava, Whoop, Polar, Suunto, Apple HealthKit, Samsung Health, and Google Health Connect** into your Convex app.
 
-Built as a drop-in module: install the component, pass your provider credentials, and start querying workouts, sleep sessions, heart rate, and 48+ health metrics — all in TypeScript, no backend glue code required.
+Built as a drop-in module: install the component, pass your provider credentials, and start querying workouts, sleep sessions, heart rate, and 88 pre-defined health metrics — all in TypeScript, no backend glue code required.
 
 ## Features
 
@@ -10,7 +10,7 @@ Built as a drop-in module: install the component, pass your provider credentials
 - **Automatic sync** — cron-triggered or on-demand data fetching from provider APIs
 - **Normalized data model** — workouts, sleep, time-series metrics, and daily summaries in a unified schema
 - **40+ workout types** mapped to a unified taxonomy (running, cycling, swimming, yoga, etc.)
-- **48 pre-defined metric types** — heart rate, HRV, SpO2, steps, weight, body temperature, and more
+- **88 pre-defined series types** — heart rate, HRV, SpO2, steps, weight, body temperature, and more
 - **Cursor-based pagination** — efficient data access within Convex's scan limits
 - **Deduplication** — events and data points are deduped by external ID and source+timestamp
 - **Precomputed daily summaries** — activity, sleep, recovery, and body composition aggregates
@@ -23,6 +23,8 @@ Built as a drop-in module: install the component, pass your provider credentials
 ```bash
 npm install @clipin/convex-wearables convex
 ```
+
+`convex` is a peer dependency and should be `>= 1.17.0`.
 
 ## Quick Start
 
@@ -43,7 +45,7 @@ export default app;
 
 ```ts
 // convex/wearables.ts
-import { WearablesClient } from "@clipin/convex-wearables";
+import { WearablesClient, type ProviderName } from "@clipin/convex-wearables";
 import { components } from "./_generated/api";
 
 export const wearables = new WearablesClient(components.wearables, {
@@ -121,7 +123,7 @@ export const disconnectProvider = mutation({
   handler: async (ctx, args) => {
     await wearables.disconnect(ctx, {
       userId: args.userId,
-      provider: args.provider as any,
+      provider: args.provider as ProviderName,
     });
   },
 });
@@ -163,7 +165,7 @@ The `category` parameter is `"workout"` or `"sleep"`. Results are ordered by sta
 | `getLatestDataPoint(ctx, { userId, seriesType })` | Get the most recent value for a metric |
 | `getAvailableSeriesTypes(ctx, { userId })` | List which metric types have data |
 
-See [Series Types](#series-types) for all 48 supported metrics.
+See [Series Types](#series-types) for all 88 supported metrics.
 
 #### Daily Summaries
 
@@ -429,16 +431,18 @@ The SDK payload also accepts `device` and `dailySummaries` as compatibility alia
 
 ## Supported Providers
 
-| Provider | OAuth | Workouts | Sleep | Time-Series | Webhooks | Status |
-|----------|-------|----------|-------|-------------|----------|--------|
-| Strava | Body auth | 40+ types | - | - | Activity push | Implemented |
-| Garmin | Body auth | 40+ types | Yes | 48+ metrics | Push API | Implemented |
-| Whoop | Basic auth | Planned | Planned | Planned | Webhooks | Planned |
-| Polar | PKCE | Planned | Planned | Planned | Webhooks | Planned |
-| Suunto | PKCE + key | Planned | Planned | Planned | - | Planned |
-| Apple | SDK push | Planned | Planned | Planned | - | Planned |
-| Samsung | SDK push | Planned | Planned | Planned | - | Planned |
-| Google | SDK push | Planned | Planned | Planned | - | Planned |
+| Provider | Integration mode | Current support | Status |
+|----------|------------------|-----------------|--------|
+| Strava | OAuth pull sync + webhook-triggered resync | Workouts, connection lifecycle, sync jobs | Implemented |
+| Garmin | OAuth pull sync + push webhooks + durable backfill | Workouts, sleep, time-series, summaries | Implemented |
+| Apple Health | Normalized SDK push | Workouts, sleep, time-series, summaries from your mobile app | Implemented via SDK |
+| Samsung Health | Normalized SDK push | Workouts, sleep, time-series, summaries from your mobile app | Implemented via SDK |
+| Google Health Connect | Normalized SDK push | Workouts, sleep, time-series, summaries from your mobile app | Implemented via SDK |
+| Whoop | Provider scaffolding | Not yet wired to data sync | Planned |
+| Polar | Provider scaffolding | Not yet wired to data sync | Planned |
+| Suunto | Provider scaffolding | Not yet wired to data sync | Planned |
+
+SDK-push providers rely on your app to send normalized payloads. The component stores and queries that data, but it does not yet fetch Apple Health, Samsung Health, or Google Health Connect data directly from vendor APIs.
 
 ### Adding a Provider
 
@@ -503,7 +507,7 @@ The component normalizes provider-specific activity types to a unified taxonomy:
 
 ## Series Types
 
-All 48 pre-defined metric types are available via the `SERIES_TYPES` constant:
+All 88 pre-defined metric types are available via the `SERIES_TYPES` constant:
 
 ```ts
 import { SERIES_TYPES } from "@clipin/convex-wearables/types";
@@ -537,7 +541,7 @@ console.log(SERIES_TYPES.heart_rate);
 
 ## Testing
 
-The component has 80 tests across 10 test files covering the full data pipeline.
+The package currently has 110 passing tests across the component internals, provider adapters, webhook ingestion, SDK push ingestion, workflow orchestration, and client helpers.
 
 ```bash
 # Run all tests
@@ -550,25 +554,12 @@ npm run test:watch
 npx vitest run src/component/events.test.ts
 ```
 
-### Test architecture
+Coverage includes:
 
-Tests use two approaches:
-
-- **DB/schema tests** (`convex-test`) — verify tables, indexes, query patterns, deduplication, and business logic using `t.run(async (ctx) => { ctx.db... })` for direct database operations
-- **Pure function tests** (vitest) — test OAuth URL building, PKCE generation, Strava activity normalization, workout type mapping, and energy unit conversion
-
-| Test file | Tests | Coverage |
-|-----------|-------|----------|
-| `events.test.ts` | 9 | CRUD, dedup (externalId + source+start+end), pagination, filtering, isolation |
-| `dataPoints.test.ts` | 8 | Store/retrieve, dedup, date range, pagination, series types, batch |
-| `connections.test.ts` | 7 | Create, re-activate, index queries, disconnect |
-| `summaries.test.ts` | 6 | Create, upsert, date range, category separation |
-| `dataSources.test.ts` | 8 | Create, indexes, upsert, multi-device, by_connection, delete |
-| `syncJobs.test.ts` | 7 | Create, status transitions, errors, index queries |
-| `oauthStates.test.ts` | 7 | Store/retrieve, PKCE fields, consume, cleanup |
-| `lifecycle.test.ts` | 2 | Cascading delete, user isolation |
-| `strava.test.ts` | 14 | Type mapping, timestamps, HR/speed/elevation/power, energy conversion |
-| `oauth.test.ts` | 12 | Random string, PKCE challenge, URL building, Strava config |
+- `convex-test` suites for schema/index behavior, deduplication, data isolation, and sync job lifecycle
+- webhook and ingestion flows for Garmin push payloads and normalized mobile SDK payloads
+- provider adapter normalization for Strava plus additional provider config coverage
+- workflow orchestration and client helpers such as route registration and SDK sync URL generation
 
 ## Platform Considerations
 
@@ -589,28 +580,32 @@ For high-volume time-series data (e.g., per-second heart rate), consider using [
 convex-wearables/
 ├── src/
 │   ├── client/
-│   │   ├── index.ts          # WearablesClient — main API surface
-│   │   └── types.ts           # Shared types, SERIES_TYPES
+│   │   ├── index.ts          # WearablesClient and HTTP route helper exports
+│   │   └── types.ts          # Shared types and SERIES_TYPES
 │   └── component/
-│       ├── schema.ts          # Convex schema (10 tables)
-│       ├── connections.ts     # Connection management queries/mutations
-│       ├── events.ts          # Event (workout/sleep) queries/mutations
-│       ├── dataPoints.ts      # Time-series queries/mutations
-│       ├── dataSources.ts     # Data source management
-│       ├── summaries.ts       # Daily summary queries/mutations
-│       ├── syncJobs.ts        # Sync job tracking
-│       ├── oauthStates.ts     # OAuth state management
-│       ├── oauthActions.ts    # OAuth flow actions (generateAuthUrl, handleCallback)
-│       ├── syncWorkflow.ts    # Sync engine (per-connection + cron)
-│       ├── http.ts            # HTTP handlers (OAuth callback, webhooks)
-│       ├── lifecycle.ts       # GDPR user data deletion
-│       ├── convex.config.ts   # Component config
+│       ├── schema.ts         # Convex schema
+│       ├── connections.ts    # Connection lifecycle queries and mutations
+│       ├── events.ts         # Workout and sleep storage/query APIs
+│       ├── dataPoints.ts     # Time-series storage/query APIs
+│       ├── dataSources.ts    # Provider/device source tracking
+│       ├── summaries.ts      # Daily aggregates
+│       ├── syncJobs.ts       # Sync job tracking
+│       ├── syncWorkflow.ts   # Durable per-connection sync orchestration
+│       ├── garminWebhooks.ts # Garmin push ingestion
+│       ├── sdkPush.ts        # Normalized mobile SDK ingestion
+│       ├── garminBackfill.ts # Garmin historical backfill workflow
+│       ├── httpHandlers.ts   # Standalone HTTP action handlers
+│       ├── oauthActions.ts   # OAuth URL generation and callback handling
+│       ├── providerSettings.ts # Stored provider credentials
+│       ├── lifecycle.ts      # GDPR user data deletion
+│       ├── convex.config.ts  # Component config
 │       ├── providers/
-│       │   ├── types.ts       # Provider interfaces
-│       │   ├── oauth.ts       # Generic OAuth utilities (PKCE, token exchange)
-│       │   ├── strava.ts      # Strava provider (OAuth config, normalization, fetch)
-│       │   └── registry.ts    # Provider registry
-│       └── *.test.ts          # Tests (10 files, 80 tests)
+│       │   ├── types.ts      # Provider interfaces
+│       │   ├── oauth.ts      # Shared OAuth utilities
+│       │   ├── garmin.ts     # Garmin adapter and normalization
+│       │   ├── strava.ts     # Strava adapter and normalization
+│       │   └── registry.ts   # Provider registry
+│       └── *.test.ts         # Component and adapter tests
 ├── package.json
 ├── tsconfig.json
 └── README.md
