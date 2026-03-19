@@ -22,7 +22,9 @@ export type ConnectionStatus = "active" | "inactive" | "revoked" | "expired" | "
 
 export type EventCategory = "workout" | "sleep";
 
-export type SyncJobStatus = "pending" | "running" | "completed" | "failed";
+export type SyncJobStatus = "queued" | "running" | "completed" | "failed" | "canceled";
+
+export type BackfillJobStatus = "queued" | "running" | "completed" | "failed" | "canceled";
 
 // ---------------------------------------------------------------------------
 // Provider configuration (passed by app)
@@ -43,6 +45,165 @@ export interface WearablesConfig {
    */
   onDataSynced?: unknown; // FunctionReference — typed loosely to avoid coupling
 }
+
+export interface GarminRoutesConfig {
+  /** Route that receives Garmin push notifications. */
+  webhookPath?: string;
+  /** Optional health-check route for the Garmin webhook integration. */
+  healthPath?: string | false;
+  /** Expected Garmin client ID. Defaults to `process.env.GARMIN_CLIENT_ID`. */
+  clientId?: string;
+  /** Garmin client secret. Defaults to `process.env.GARMIN_CLIENT_SECRET`. */
+  clientSecret?: string;
+  /** Route that receives the Garmin OAuth callback. */
+  oauthCallbackPath?: string | false;
+  /** Where to redirect after a successful OAuth callback. */
+  successRedirectUrl?: string;
+  /** Query parameter set on successful OAuth redirect. */
+  successQueryParam?: string;
+}
+
+export interface SdkRoutesConfig {
+  /** Route that receives normalized SDK/mobile health pushes. */
+  syncPath?: string | false;
+  /**
+   * Optional shared bearer token expected on the SDK sync route.
+   * Defaults to `process.env.WEARABLES_SDK_AUTH_TOKEN` when omitted.
+   */
+  authToken?: string;
+}
+
+export interface RegisterRoutesConfig {
+  /**
+   * Garmin webhook routes.
+   * Pass `false` to skip registering Garmin routes.
+   */
+  garmin?: GarminRoutesConfig | false;
+  /**
+   * Normalized SDK push route for Apple Health / Google Health Connect / Samsung Health.
+   * Omitted by default; pass a config object to register it.
+   */
+  sdk?: SdkRoutesConfig | false;
+}
+
+export type SdkProviderName = "apple" | "google" | "samsung";
+
+export interface SdkDeviceMetadata {
+  model?: string;
+  softwareVersion?: string;
+  source?: string;
+  deviceType?: string;
+  originalSourceName?: string;
+}
+
+export interface SdkSourceMetadata {
+  deviceModel?: string;
+  softwareVersion?: string;
+  source?: string;
+  deviceType?: string;
+  originalSourceName?: string;
+}
+
+export interface SdkPushEvent extends SdkSourceMetadata {
+  category: EventCategory;
+  type?: string;
+  sourceName?: string;
+  durationSeconds?: number;
+  startDatetime: number;
+  endDatetime?: number;
+  externalId?: string;
+  heartRateMin?: number;
+  heartRateMax?: number;
+  heartRateAvg?: number;
+  energyBurned?: number;
+  distance?: number;
+  stepsCount?: number;
+  maxSpeed?: number;
+  maxWatts?: number;
+  movingTimeSeconds?: number;
+  totalElevationGain?: number;
+  averageSpeed?: number;
+  averageWatts?: number;
+  elevHigh?: number;
+  elevLow?: number;
+  sleepTotalDurationMinutes?: number;
+  sleepTimeInBedMinutes?: number;
+  sleepEfficiencyScore?: number;
+  sleepDeepMinutes?: number;
+  sleepRemMinutes?: number;
+  sleepLightMinutes?: number;
+  sleepAwakeMinutes?: number;
+  isNap?: boolean;
+  sleepStages?: Array<{
+    stage: string;
+    startTime: number;
+    endTime: number;
+  }>;
+}
+
+export interface SdkPushDataPoint extends SdkSourceMetadata {
+  seriesType: string;
+  recordedAt: number;
+  value: number;
+  externalId?: string;
+}
+
+export interface SdkPushSummary {
+  date: string;
+  category: string;
+  totalSteps?: number;
+  totalCalories?: number;
+  activeCalories?: number;
+  activeMinutes?: number;
+  totalDistance?: number;
+  floorsClimbed?: number;
+  avgHeartRate?: number;
+  maxHeartRate?: number;
+  minHeartRate?: number;
+  sleepDurationMinutes?: number;
+  sleepEfficiency?: number;
+  deepSleepMinutes?: number;
+  remSleepMinutes?: number;
+  lightSleepMinutes?: number;
+  awakeDuringMinutes?: number;
+  timeInBedMinutes?: number;
+  hrvAvg?: number;
+  hrvRmssd?: number;
+  restingHeartRate?: number;
+  recoveryScore?: number;
+  weight?: number;
+  bodyFatPercentage?: number;
+  bodyMassIndex?: number;
+  leanBodyMass?: number;
+  bodyTemperature?: number;
+  avgStressLevel?: number;
+  bodyBattery?: number;
+  spo2Avg?: number;
+}
+
+export interface SdkPushPayload {
+  userId: string;
+  provider: SdkProviderName;
+  providerUserId?: string;
+  providerUsername?: string;
+  syncTimestamp?: number;
+  /**
+   * Compatibility alias for older mobile payloads.
+   * Prefer `sourceMetadata` for new integrations.
+   */
+  device?: SdkDeviceMetadata;
+  sourceMetadata?: SdkSourceMetadata;
+  events?: SdkPushEvent[];
+  dataPoints?: SdkPushDataPoint[];
+  summaries?: SdkPushSummary[];
+  /**
+   * Compatibility alias for older mobile payloads.
+   * Prefer `summaries` for new integrations.
+   */
+  dailySummaries?: SdkPushSummary[];
+}
+
+export type SdkSyncPayload = SdkPushPayload;
 
 // ---------------------------------------------------------------------------
 // Connection types
@@ -202,13 +363,23 @@ export interface AggregateStats {
 
 export interface SyncJob {
   _id: string;
+  connectionId: string;
   userId: string;
-  provider?: ProviderName;
+  provider: ProviderName;
   status: SyncJobStatus;
+  mode?: "manual" | "cron" | "webhook";
+  triggerSource?: string;
   startedAt: number;
   completedAt?: number;
   error?: string;
   recordsProcessed?: number;
+  workflowId?: string;
+  windowStart?: number;
+  windowEnd?: number;
+  attempt?: number;
+  lastHeartbeatAt?: number;
+  cursor?: string;
+  currentPhase?: "events" | "dataPoints" | "summaries";
 }
 
 export interface SyncStatus {
@@ -217,6 +388,26 @@ export interface SyncStatus {
   lastSyncedAt?: number;
   syncJobStatus: SyncJobStatus | null;
   syncJobError: string | null;
+}
+
+export interface BackfillJob {
+  _id: string;
+  connectionId: string;
+  userId: string;
+  provider: ProviderName;
+  dataType: string;
+  status: BackfillJobStatus;
+  startedAt: number;
+  completedAt?: number;
+  error?: string;
+  workflowId?: string;
+  windowStart?: number;
+  windowEnd?: number;
+  currentDataType?: string;
+  currentAttempt?: number;
+  currentEventId?: string;
+  completedDataTypes?: string[];
+  lastHeartbeatAt?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -266,18 +457,23 @@ export const SERIES_TYPES = {
   steps: { id: 80, unit: "count" },
   energy: { id: 81, unit: "kcal" },
   basal_energy: { id: 82, unit: "kcal" },
+  total_calories: { id: 88, unit: "kcal" },
+  active_calories: { id: 89, unit: "kcal" },
   stand_time: { id: 83, unit: "minutes" },
   exercise_time: { id: 84, unit: "minutes" },
   physical_effort: { id: 85, unit: "score" },
   flights_climbed: { id: 86, unit: "count" },
+  floors_climbed: { id: 90, unit: "count" },
   average_met: { id: 87, unit: "met" },
 
   // Activity — Distance
+  distance: { id: 99, unit: "meters" },
   distance_walking_running: { id: 100, unit: "meters" },
   distance_cycling: { id: 101, unit: "meters" },
   distance_swimming: { id: 102, unit: "meters" },
   distance_downhill_snow_sports: { id: 103, unit: "meters" },
   distance_other: { id: 104, unit: "meters" },
+  elevation_gain: { id: 105, unit: "meters" },
 
   // Activity — Walking
   walking_step_length: { id: 120, unit: "cm" },
