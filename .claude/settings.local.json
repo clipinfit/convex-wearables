@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:docs.convex.dev)",
+      "WebFetch(domain:stack.convex.dev)",
+      "WebFetch(domain:github.com)",
+      "Bash(npm test)"
+    ]
+  }
+}
