@@ -113,21 +113,38 @@ export const stravaWebhookEvent = httpAction(async (_ctx, request) => {
     // Strava webhook payload format:
     // { object_type: "activity", object_id: 123, aspect_type: "create"|"update"|"delete",
     //   owner_id: 456, subscription_id: 789 }
-    const { object_type, aspect_type, owner_id } = body;
+    const { object_type, object_id, aspect_type, owner_id } = body;
 
     if (object_type !== "activity") {
       // We only handle activity events for now
       return new Response("OK", { status: 200 });
     }
 
-    // Find the connection for this Strava user
-    // Note: owner_id is the Strava athlete ID (providerUserId)
-    // The host app should schedule a sync for this user's connection
-    // rather than processing inline (to handle rate limits, batching, etc.)
+    const ownerId = String(owner_id);
+    const connection = await _ctx.runQuery(internal.connections.getByProviderUser, {
+      provider: "strava",
+      providerUserId: ownerId,
+    });
 
-    // For now, acknowledge the webhook. The actual processing will be
-    // triggered by scheduling a syncConnection action for the affected user.
-    console.log(`Strava webhook: ${aspect_type} activity for owner ${owner_id}`);
+    if (!connection) {
+      return new Response("OK", { status: 200 });
+    }
+
+    if (aspect_type === "delete") {
+      await _ctx.runMutation(internal.events.deleteByExternalId, {
+        externalId: `strava-${object_id}`,
+      });
+      return new Response("OK", { status: 200 });
+    }
+
+    const now = Date.now();
+    await _ctx.runMutation(internal.syncWorkflow.requestConnectionSync, {
+      connectionId: connection._id,
+      mode: "webhook",
+      triggerSource: `strava:${aspect_type}:${object_id}`,
+      windowStart: now - 30 * 24 * 60 * 60 * 1000,
+      windowEnd: now + 5 * 60 * 1000,
+    });
 
     return new Response("OK", { status: 200 });
   } catch {

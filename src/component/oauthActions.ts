@@ -40,6 +40,13 @@ export const generateAuthUrl = action({
   },
   returns: v.string(),
   handler: async (ctx, args) => {
+    await ctx.runMutation(internal.providerSettings.upsertCredentials, {
+      provider: args.provider,
+      clientId: args.clientId,
+      clientSecret: args.clientSecret,
+      subscriptionKey: args.subscriptionKey,
+    });
+
     const providerDef = getProvider(args.provider);
     if (!providerDef) {
       throw new Error(`Provider "${args.provider}" is not implemented`);
@@ -120,6 +127,13 @@ export const handleCallback = action({
     if (!providerDef) {
       throw new Error(`Provider "${oauthState.provider}" is not implemented`);
     }
+
+    await ctx.runMutation(internal.providerSettings.upsertCredentials, {
+      provider: oauthState.provider,
+      clientId: args.clientId,
+      clientSecret: args.clientSecret,
+      subscriptionKey: args.subscriptionKey,
+    });
 
     const credentials: ProviderCredentials = {
       clientId: args.clientId,

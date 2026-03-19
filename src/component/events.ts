@@ -234,10 +234,40 @@ export const storeEventBatch = internalMutation({
           continue;
         }
       }
+      const existing = await ctx.db
+        .query("events")
+        .withIndex("by_source_start_end", (idx) =>
+          idx
+            .eq("dataSourceId", event.dataSourceId)
+            .eq("startDatetime", event.startDatetime)
+            .eq("endDatetime", event.endDatetime ?? undefined),
+        )
+        .first();
+      if (existing) {
+        await ctx.db.patch(existing._id, event);
+        ids.push(existing._id);
+        continue;
+      }
       const id = await ctx.db.insert("events", event);
       ids.push(id);
     }
     return ids;
+  },
+});
+
+export const deleteByExternalId = internalMutation({
+  args: {
+    externalId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const event = await ctx.db
+      .query("events")
+      .withIndex("by_external_id", (idx) => idx.eq("externalId", args.externalId))
+      .first();
+
+    if (event) {
+      await ctx.db.delete(event._id);
+    }
   },
 });
 

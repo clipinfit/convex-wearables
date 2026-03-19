@@ -278,6 +278,8 @@ function normalizeSleep(raw: any): NormalizedEvent | null {
     sleepRemMinutes: Math.floor(remSeconds / 60),
     sleepAwakeMinutes: Math.floor(awakeSeconds / 60),
     sleepEfficiencyScore: entry.SleepQualityScore,
+    heartRateAvg: Number.isFinite(entry.HRAvg) ? Number(entry.HRAvg) : undefined,
+    heartRateMin: Number.isFinite(entry.HRMin) ? Number(entry.HRMin) : undefined,
     isNap: Boolean(entry.IsNap),
   };
 }

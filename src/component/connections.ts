@@ -80,6 +80,32 @@ export const getAllActive = internalQuery({
   },
 });
 
+export const getById = internalQuery({
+  args: {
+    connectionId: v.id("connections"),
+  },
+  returns: v.union(v.any(), v.null()),
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.connectionId);
+  },
+});
+
+export const getByProviderUser = internalQuery({
+  args: {
+    provider: providerName,
+    providerUserId: v.string(),
+  },
+  returns: v.union(v.any(), v.null()),
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("connections")
+      .withIndex("by_provider_user", (idx) =>
+        idx.eq("provider", args.provider).eq("providerUserId", args.providerUserId),
+      )
+      .first();
+  },
+});
+
 /**
  * Get sync status for a user across all their connections.
  */
@@ -94,12 +120,9 @@ export const getSyncStatus = query({
 
     const statuses = [];
     for (const conn of connections) {
-      // Find the most recent sync job for this connection
       const latestJob = await ctx.db
         .query("syncJobs")
-        .withIndex("by_user_provider", (idx) =>
-          idx.eq("userId", args.userId).eq("provider", conn.provider),
-        )
+        .withIndex("by_connection", (idx) => idx.eq("connectionId", conn._id))
         .order("desc")
         .first();
 
@@ -161,6 +184,45 @@ export const createConnection = internalMutation({
 });
 
 /**
+ * Ensure a push-based provider connection exists for SDK-ingested providers
+ * like Apple Health or Google Health Connect.
+ */
+export const ensurePushConnection = internalMutation({
+  args: {
+    userId: v.string(),
+    provider: providerName,
+    providerUserId: v.optional(v.string()),
+    providerUsername: v.optional(v.string()),
+  },
+  returns: v.id("connections"),
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("connections")
+      .withIndex("by_user_provider", (idx) =>
+        idx.eq("userId", args.userId).eq("provider", args.provider),
+      )
+      .first();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        providerUserId: args.providerUserId ?? existing.providerUserId,
+        providerUsername: args.providerUsername ?? existing.providerUsername,
+        status: "active",
+      });
+      return existing._id;
+    }
+
+    return await ctx.db.insert("connections", {
+      userId: args.userId,
+      provider: args.provider,
+      providerUserId: args.providerUserId,
+      providerUsername: args.providerUsername,
+      status: "active",
+    });
+  },
+});
+
+/**
  * Update OAuth tokens (e.g., after refresh).
  */
 export const updateTokens = internalMutation({
@@ -198,6 +260,21 @@ export const updateStatus = internalMutation({
   },
   handler: async (ctx, args) => {
     await ctx.db.patch(args.connectionId, { status: args.status });
+  },
+});
+
+/**
+ * Update the stored OAuth scope / permissions for a connection.
+ */
+export const updateScope = internalMutation({
+  args: {
+    connectionId: v.id("connections"),
+    scope: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.connectionId, {
+      scope: args.scope,
+    });
   },
 });
 

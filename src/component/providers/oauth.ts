@@ -225,7 +225,21 @@ export async function makeAuthenticatedRequest<T = unknown>(
       throw new Error(`API request failed (${response.status}): ${text}`);
     }
 
-    return (await response.json()) as T;
+    if (response.status === 204) {
+      return undefined as T;
+    }
+
+    const text = await response.text();
+    if (!text) {
+      return undefined as T;
+    }
+
+    const contentType = response.headers.get("content-type") ?? "";
+    if (contentType.includes("application/json")) {
+      return JSON.parse(text) as T;
+    }
+
+    return text as T;
   }
 
   throw new Error(`API request failed after ${MAX_RETRIES} retries (rate limited)`);
