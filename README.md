@@ -15,7 +15,7 @@ Built as a drop-in module: install the component, pass your provider credentials
 - **Deduplication** — events and data points are deduped by external ID and source+timestamp
 - **Precomputed daily summaries** — activity, sleep, recovery, and body composition aggregates
 - **GDPR-ready** — cascading user data deletion in a single call
-- **Webhook support** — HTTP handlers for Strava activity pushes (more providers coming)
+- **Webhook + SDK push support** — Garmin webhooks plus normalized mobile SDK ingestion for Apple Health / Google Health Connect
 - **Full TypeScript** — end-to-end type safety from provider API to client query
 
 ## Installation
@@ -305,6 +305,43 @@ export default crons;
 
 ## Webhook Support
 
+### Garmin Webhooks
+
+Register Garmin routes directly from the package:
+
+```ts
+// convex/http.ts
+import { httpRouter } from "convex/server";
+import { registerRoutes } from "@clipin/convex-wearables";
+import { components } from "./_generated/api";
+
+const http = httpRouter();
+
+registerRoutes(http, components.wearables, {
+  garmin: {
+    clientId: process.env.GARMIN_CLIENT_ID,
+    clientSecret: process.env.GARMIN_CLIENT_SECRET,
+    oauthCallbackPath: "/oauth/garmin/callback",
+    successRedirectUrl: process.env.NEXT_PUBLIC_APP_URL,
+    webhookPath: "/webhooks/garmin/push",
+    healthPath: "/webhooks/garmin/health",
+  },
+});
+
+export default http;
+```
+
+The Garmin route helper:
+
+- handles the Garmin OAuth callback redirect
+- validates the `garmin-client-id` header
+- logs payload summaries and processing errors
+- forwards the payload to `components.wearables.garminWebhooks.processPushPayload`
+- exposes an optional health-check route
+
+If you customize `oauthCallbackPath`, the redirect URI used when calling
+`oauthActions.generateAuthUrl` must match that same callback path.
+
 ### Strava Webhooks
 
 The component provides HTTP handlers for Strava's [webhook events API](https://developers.strava.com/docs/webhooks/):
@@ -338,12 +375,64 @@ http.route({
 export default http;
 ```
 
+### SDK Push (Apple Health / Google Health Connect)
+
+For on-device providers, register the normalized SDK sync route explicitly:
+
+```ts
+// convex/http.ts
+import { httpRouter } from "convex/server";
+import { getSdkSyncUrl, registerRoutes } from "@clipin/convex-wearables";
+import { components } from "./_generated/api";
+
+const http = httpRouter();
+
+const routeConfig = {
+  sdk: {
+    syncPath: "/sdk/sync",
+    authToken: process.env.WEARABLES_SDK_AUTH_TOKEN,
+  },
+};
+
+registerRoutes(http, components.wearables, routeConfig);
+
+const sdkSyncUrl = getSdkSyncUrl(process.env.CONVEX_SITE_URL!, routeConfig);
+
+export default http;
+```
+
+Then POST a pre-normalized payload from your mobile app:
+
+```json
+{
+  "userId": "user_123",
+  "provider": "google",
+  "sourceMetadata": {
+    "deviceModel": "Pixel Watch 3",
+    "source": "health-connect"
+  },
+  "events": [],
+  "dataPoints": [
+    {
+      "seriesType": "heart_rate",
+      "recordedAt": 1773817200000,
+      "value": 58
+    }
+  ],
+  "summaries": []
+}
+```
+
+The backend stores the payload using the same `connections`, `dataSources`, `events`, `dataPoints`, and `dailySummaries` tables as the cloud providers.
+
+The SDK payload also accepts `device` and `dailySummaries` as compatibility aliases, and normalizes common Health Connect metric names like `hrv_rmssd`.
+
 ## Supported Providers
 
 | Provider | OAuth | Workouts | Sleep | Time-Series | Webhooks | Status |
 |----------|-------|----------|-------|-------------|----------|--------|
 | Strava | Body auth | 40+ types | - | - | Activity push | Implemented |
-| Garmin | Body auth | Planned | Planned | Planned | Push API | Planned |
+| Garmin | Body auth | 40+ types | Yes | 48+ metrics | Push API | Implemented |
 | Whoop | Basic auth | Planned | Planned | Planned | Webhooks | Planned |
 | Polar | PKCE | Planned | Planned | Planned | Webhooks | Planned |
 | Suunto | PKCE + key | Planned | Planned | Planned | - | Planned |
