@@ -763,13 +763,22 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 function errorPage(message: string): string {
+  const safe = escapeHtml(message);
   return `<!DOCTYPE html>
 <html><head><title>Error</title></head>
 <body style="font-family:system-ui;display:flex;justify-content:center;align-items:center;height:100vh;margin:0;background:#111;color:#eee">
 <div style="text-align:center;max-width:400px">
 <h1 style="font-size:1.25rem">Connection Failed</h1>
-<p style="color:#999">${message}</p>
+<p style="color:#999">${safe}</p>
 <a href="/" style="color:#60a5fa;text-decoration:none">Back to app</a>
 </div></body></html>`;
 }
