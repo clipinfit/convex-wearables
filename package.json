@@ -3,12 +3,15 @@
   "version": "0.0.1",
   "description": "Convex component for wearable device integrations — sync health data from Garmin, Strava, Whoop, Polar, Suunto, Apple HealthKit, Samsung Health, and Google Health Connect.",
   "license": "Apache-2.0",
+  "homepage": "https://github.com/clipinfit/convex-wearables#readme",
+  "bugs": {
+    "url": "https://github.com/clipinfit/convex-wearables/issues"
+  },
   "type": "module",
   "main": "./dist/client/index.js",
   "types": "./dist/client/index.d.ts",
   "files": [
-    "dist",
-    "src"
+    "dist"
   ],
   "exports": {
     ".": {
@@ -24,12 +27,17 @@
       "default": "./dist/client/types.js"
     }
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
+    "prebuild": "node --eval \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
     "build": "tsc -p tsconfig.build.json",
     "dev": "tsc -p tsconfig.build.json --watch",
     "format": "biome format --write .",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
+    "prepack": "npm run build",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
