@@ -2,11 +2,7 @@ import { v } from "convex/values";
 import { internalMutation, internalQuery, query } from "./_generated/server";
 import { providerName, syncJobStatus } from "./schema";
 
-const syncPhase = v.union(
-  v.literal("events"),
-  v.literal("dataPoints"),
-  v.literal("summaries"),
-);
+const syncPhase = v.union(v.literal("events"), v.literal("dataPoints"), v.literal("summaries"));
 
 // ---------------------------------------------------------------------------
 // Queries

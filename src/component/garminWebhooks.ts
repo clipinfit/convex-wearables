@@ -35,10 +35,7 @@ import {
 
 const DATA_POINT_BATCH_SIZE = 100;
 
-function decodePushPayload(args: {
-  payload?: unknown;
-  payloadJson?: string;
-}): GarminPushPayload {
+function decodePushPayload(args: { payload?: unknown; payloadJson?: string }): GarminPushPayload {
   if (args.payloadJson !== undefined) {
     return JSON.parse(args.payloadJson) as GarminPushPayload;
   }

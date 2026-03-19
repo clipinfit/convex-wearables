@@ -15,8 +15,8 @@
 
 import { makeAuthenticatedRequest } from "./oauth";
 import type {
-  NormalizedDataPoint,
   NormalizedDailySummary,
+  NormalizedDataPoint,
   NormalizedEvent,
   OAuthProviderConfig,
   ProviderAdapter,

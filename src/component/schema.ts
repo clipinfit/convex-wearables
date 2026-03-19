@@ -232,7 +232,9 @@ export default defineSchema({
     attempt: v.optional(v.number()),
     lastHeartbeatAt: v.optional(v.number()),
     cursor: v.optional(v.string()),
-    currentPhase: v.optional(v.union(v.literal("events"), v.literal("dataPoints"), v.literal("summaries"))),
+    currentPhase: v.optional(
+      v.union(v.literal("events"), v.literal("dataPoints"), v.literal("summaries")),
+    ),
   })
     .index("by_user", ["userId"])
     .index("by_connection", ["connectionId"])

@@ -12,26 +12,37 @@ import type { Id } from "./_generated/dataModel";
 import { action, internalAction, internalMutation } from "./_generated/server";
 import { getProvider } from "./providers/registry";
 import type {
-  NormalizedDataPoint,
   NormalizedDailySummary,
+  NormalizedDataPoint,
   NormalizedEvent,
 } from "./providers/types";
-import { durableWorkflow } from "./workflowManager";
 import { providerName } from "./schema";
+import { durableWorkflow } from "./workflowManager";
 
 const EVENT_BATCH_SIZE = 50;
 const DATA_POINT_BATCH_SIZE = 200;
 const SUMMARY_BATCH_SIZE = 50;
 const DEFAULT_SYNC_WINDOW_HOURS = 24;
 
-const syncPhase = v.union(
-  v.literal("events"),
-  v.literal("dataPoints"),
-  v.literal("summaries"),
-);
+const syncPhase = v.union(v.literal("events"), v.literal("dataPoints"), v.literal("summaries"));
 
 type SyncPhase = "events" | "dataPoints" | "summaries";
 type DataSourceCache = Map<string, Id<"dataSources">>;
+type DataSourceMutationRunner = {
+  runMutation: (
+    mutation: typeof api.dataSources.getOrCreate,
+    args: {
+      userId: string;
+      provider: string;
+      connectionId: Id<"connections">;
+      deviceModel?: string;
+      softwareVersion?: string;
+      source: string;
+      deviceType?: string;
+      originalSourceName?: string;
+    },
+  ) => Promise<Id<"dataSources">>;
+};
 
 function buildSyncIdempotencyKey(args: {
   connectionId: Id<"connections">;
@@ -63,9 +74,7 @@ function sourceCacheKey(
 }
 
 async function ensureDataSource(
-  ctx: {
-    runMutation: (mutation: any, args: any) => Promise<any>;
-  },
+  ctx: DataSourceMutationRunner,
   args: {
     userId: string;
     provider: string;
@@ -590,7 +599,9 @@ export const syncConnection = action({
       throw new Error(`Connection ${args.connectionId} not found`);
     }
     if (connection.provider !== args.provider) {
-      throw new Error(`Connection ${args.connectionId} does not belong to provider "${args.provider}"`);
+      throw new Error(
+        `Connection ${args.connectionId} does not belong to provider "${args.provider}"`,
+      );
     }
 
     if ((args.clientId && !args.clientSecret) || (!args.clientId && args.clientSecret)) {
@@ -609,7 +620,8 @@ export const syncConnection = action({
     const endDate = args.endDate ?? Date.now();
     const defaultWindowMs = (args.syncWindowHours ?? DEFAULT_SYNC_WINDOW_HOURS) * 60 * 60 * 1000;
     const startDate =
-      args.startDate ?? Math.max(connection.lastSyncedAt ?? endDate - defaultWindowMs, endDate - defaultWindowMs);
+      args.startDate ??
+      Math.max(connection.lastSyncedAt ?? endDate - defaultWindowMs, endDate - defaultWindowMs);
 
     const result = await ctx.runMutation(internal.syncWorkflow.requestConnectionSync, {
       connectionId: args.connectionId,
