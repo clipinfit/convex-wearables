@@ -1,24 +1,46 @@
 /**
- * Sync workflow — fetches data from a provider and stores it.
+ * Durable sync orchestration for provider pull syncs.
  *
- * Uses Convex actions for external API calls and mutations for DB writes.
- * Designed to be called by @convex-dev/workflow for durability,
- * but also works as a standalone action for simpler use cases.
+ * The old implementation executed a whole sync inline in one action. This
+ * module now enqueues a durable workflow per connection and keeps syncJobs as
+ * the user-visible progress surface.
  */
 
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { type ActionCtx, action, internalAction } from "./_generated/server";
+import { action, internalAction, internalMutation } from "./_generated/server";
 import { getProvider } from "./providers/registry";
-import type { NormalizedEvent } from "./providers/types";
+import type {
+  NormalizedDataPoint,
+  NormalizedDailySummary,
+  NormalizedEvent,
+} from "./providers/types";
+import { durableWorkflow } from "./workflowManager";
 import { providerName } from "./schema";
 
-// Maximum events per batch mutation (stay well within 1-second timeout)
-const BATCH_SIZE = 50;
+const EVENT_BATCH_SIZE = 50;
 const DATA_POINT_BATCH_SIZE = 200;
+const SUMMARY_BATCH_SIZE = 50;
+const DEFAULT_SYNC_WINDOW_HOURS = 24;
 
+const syncPhase = v.union(
+  v.literal("events"),
+  v.literal("dataPoints"),
+  v.literal("summaries"),
+);
+
+type SyncPhase = "events" | "dataPoints" | "summaries";
 type DataSourceCache = Map<string, Id<"dataSources">>;
+
+function buildSyncIdempotencyKey(args: {
+  connectionId: Id<"connections">;
+  mode: "manual" | "cron" | "webhook";
+  windowStart: number;
+  windowEnd: number;
+}): string {
+  return [args.connectionId, args.mode, args.windowStart, args.windowEnd].join("::");
+}
 
 function sourceCacheKey(
   provider: string,
@@ -41,7 +63,9 @@ function sourceCacheKey(
 }
 
 async function ensureDataSource(
-  ctx: Pick<ActionCtx, "runMutation">,
+  ctx: {
+    runMutation: (mutation: any, args: any) => Promise<any>;
+  },
   args: {
     userId: string;
     provider: string;
@@ -112,213 +136,497 @@ function toEventDoc(event: NormalizedEvent, dataSourceId: Id<"dataSources">, use
   };
 }
 
-/**
- * Run a full sync for a single connection.
- *
- * 1. Ensures the access token is valid (refreshes if needed).
- * 2. Fetches workouts from the provider API.
- * 3. Stores events in batches via mutations.
- * 4. Updates the connection's lastSyncedAt timestamp.
- */
-export const syncConnection = internalAction({
+function sortEvents(events: NormalizedEvent[]): NormalizedEvent[] {
+  return [...events].sort((a, b) => {
+    if (a.startDatetime !== b.startDatetime) {
+      return a.startDatetime - b.startDatetime;
+    }
+    return (a.externalId ?? "").localeCompare(b.externalId ?? "");
+  });
+}
+
+function sortDataPoints(points: NormalizedDataPoint[]): NormalizedDataPoint[] {
+  return [...points].sort((a, b) => {
+    if (a.recordedAt !== b.recordedAt) {
+      return a.recordedAt - b.recordedAt;
+    }
+    if (a.seriesType !== b.seriesType) {
+      return a.seriesType.localeCompare(b.seriesType);
+    }
+    return (a.externalId ?? "").localeCompare(b.externalId ?? "");
+  });
+}
+
+function sortSummaries(summaries: NormalizedDailySummary[]): NormalizedDailySummary[] {
+  return [...summaries].sort((a, b) => {
+    if (a.date !== b.date) {
+      return a.date.localeCompare(b.date);
+    }
+    return a.category.localeCompare(b.category);
+  });
+}
+
+export const requestConnectionSync = internalMutation({
   args: {
     connectionId: v.id("connections"),
-    userId: v.string(),
-    provider: providerName,
-    accessToken: v.string(),
-    refreshToken: v.optional(v.string()),
-    tokenExpiresAt: v.optional(v.number()),
-    clientId: v.string(),
-    clientSecret: v.string(),
-    subscriptionKey: v.optional(v.string()),
-    startDate: v.number(), // unix ms
-    endDate: v.number(), // unix ms
+    mode: v.optional(v.union(v.literal("manual"), v.literal("cron"), v.literal("webhook"))),
+    triggerSource: v.optional(v.string()),
+    windowStart: v.number(),
+    windowEnd: v.number(),
   },
+  returns: v.object({
+    syncJobId: v.id("syncJobs"),
+    workflowId: v.string(),
+    deduped: v.boolean(),
+  }),
   handler: async (ctx, args) => {
-    // Create a sync job to track progress
-    const syncJobId = await ctx.runMutation(api.syncJobs.create, {
-      userId: args.userId,
-      provider: args.provider,
-      status: "running",
-      startedAt: Date.now(),
+    const connection = await ctx.db.get(args.connectionId);
+    if (!connection) {
+      throw new Error(`Connection ${args.connectionId} not found`);
+    }
+    if (connection.status !== "active") {
+      throw new Error(`Connection ${args.connectionId} is not active`);
+    }
+
+    const mode = args.mode ?? "manual";
+    const idempotencyKey = buildSyncIdempotencyKey({
+      connectionId: args.connectionId,
+      mode,
+      windowStart: args.windowStart,
+      windowEnd: args.windowEnd,
     });
 
-    const credentials = {
-      clientId: args.clientId,
-      clientSecret: args.clientSecret,
-      subscriptionKey: args.subscriptionKey,
+    const existing = await ctx.db
+      .query("syncJobs")
+      .withIndex("by_idempotency_key", (idx) => idx.eq("idempotencyKey", idempotencyKey))
+      .order("desc")
+      .first();
+
+    if (existing && (existing.status === "queued" || existing.status === "running")) {
+      return {
+        syncJobId: existing._id,
+        workflowId: existing.workflowId ?? "",
+        deduped: true,
+      };
+    }
+
+    const syncJobId = await ctx.db.insert("syncJobs", {
+      connectionId: connection._id,
+      userId: connection.userId,
+      provider: connection.provider,
+      mode,
+      triggerSource: args.triggerSource,
+      idempotencyKey,
+      status: "queued",
+      startedAt: Date.now(),
+      attempt: 0,
+      windowStart: args.windowStart,
+      windowEnd: args.windowEnd,
+    });
+
+    const workflowId = await durableWorkflow.start(
+      ctx,
+      internal.syncWorkflow.runConnectionSync,
+      { syncJobId },
+      {
+        startAsync: true,
+        onComplete: internal.syncWorkflow.handleConnectionSyncComplete,
+        context: { syncJobId },
+      },
+    );
+
+    await ctx.db.patch(syncJobId, { workflowId });
+
+    return {
+      syncJobId,
+      workflowId,
+      deduped: false,
     };
+  },
+});
+
+export const fetchSyncPhaseBatch = internalAction({
+  args: {
+    syncJobId: v.id("syncJobs"),
+    phase: syncPhase,
+    cursor: v.optional(v.string()),
+  },
+  returns: v.object({
+    events: v.array(v.any()),
+    dataPoints: v.array(v.any()),
+    summaries: v.array(v.any()),
+    nextCursor: v.union(v.string(), v.null()),
+  }),
+  handler: async (ctx, args) => {
+    const job = await ctx.runQuery(internal.syncJobs.getById, {
+      jobId: args.syncJobId,
+    });
+    if (!job) {
+      throw new Error(`Sync job ${args.syncJobId} not found`);
+    }
+
+    const connection = await ctx.runQuery(internal.connections.getById, {
+      connectionId: job.connectionId,
+    });
+    if (!connection) {
+      throw new Error(`Connection ${job.connectionId} not found`);
+    }
+
+    const credentials = await ctx.runQuery(internal.providerSettings.getCredentials, {
+      provider: job.provider,
+    });
+    if (!credentials) {
+      throw new Error(`Missing stored credentials for provider "${job.provider}"`);
+    }
+
+    const providerDef = getProvider(job.provider);
+    if (!providerDef) {
+      throw new Error(`Provider "${job.provider}" is not implemented`);
+    }
 
     try {
-      // 1. Ensure valid token
       const accessToken = await ctx.runAction(internal.oauthActions.ensureValidToken, {
-        connectionId: args.connectionId,
-        provider: args.provider,
-        accessToken: args.accessToken,
-        refreshToken: args.refreshToken,
-        tokenExpiresAt: args.tokenExpiresAt,
-        clientId: args.clientId,
-        clientSecret: args.clientSecret,
-        subscriptionKey: args.subscriptionKey,
+        connectionId: connection._id,
+        provider: connection.provider,
+        accessToken: connection.accessToken ?? "",
+        refreshToken: connection.refreshToken,
+        tokenExpiresAt: connection.tokenExpiresAt,
+        clientId: credentials.clientId,
+        clientSecret: credentials.clientSecret,
+        subscriptionKey: credentials.subscriptionKey,
       });
 
-      // 2. Fetch provider data
-      const providerDef = getProvider(args.provider);
-      if (!providerDef) {
-        throw new Error(`Provider "${args.provider}" is not implemented`);
-      }
+      const offset = Number(args.cursor ?? "0");
+      const startDate = job.windowStart ?? Date.now() - DEFAULT_SYNC_WINDOW_HOURS * 60 * 60 * 1000;
+      const endDate = job.windowEnd ?? Date.now();
 
-      const sourceCache: DataSourceCache = new Map();
-      let recordsProcessed = 0;
-
-      const events = providerDef.fetchEvents
-        ? await providerDef.fetchEvents(accessToken, args.startDate, args.endDate, credentials)
-        : [];
-
-      for (let i = 0; i < events.length; i += BATCH_SIZE) {
-        const batch = events.slice(i, i + BATCH_SIZE);
-        const eventDocs = await Promise.all(
-          batch.map(async (event: NormalizedEvent) => {
-            const dataSourceId = await ensureDataSource(
-              ctx,
-              {
-                userId: args.userId,
-                provider: args.provider,
-                connectionId: args.connectionId,
-              },
-              sourceCache,
-              {
-                deviceModel: event.deviceModel,
-                softwareVersion: event.softwareVersion,
-                source: event.source ?? args.provider,
-                deviceType: event.deviceType,
-                originalSourceName: event.originalSourceName,
-              },
-            );
-
-            return toEventDoc(event, dataSourceId, args.userId);
-          }),
+      if (args.phase === "events") {
+        const all = sortEvents(
+          providerDef.fetchEvents
+            ? await providerDef.fetchEvents(accessToken, startDate, endDate, credentials)
+            : [],
         );
-
-        await ctx.runMutation(internal.events.storeEventBatch, {
-          events: eventDocs,
-        });
-        recordsProcessed += batch.length;
-      }
-
-      const dataPoints = providerDef.fetchDataPoints
-        ? await providerDef.fetchDataPoints(accessToken, args.startDate, args.endDate, credentials)
-        : [];
-
-      const pointGroups = new Map<
-        string,
-        {
-          dataSourceId: Id<"dataSources">;
-          seriesType: string;
-          points: Array<{
-            recordedAt: number;
-            value: number;
-            externalId?: string;
-          }>;
-        }
-      >();
-
-      for (const point of dataPoints) {
-        const dataSourceId = await ensureDataSource(
-          ctx,
-          {
-            userId: args.userId,
-            provider: args.provider,
-            connectionId: args.connectionId,
-          },
-          sourceCache,
-          {
-            deviceModel: point.deviceModel,
-            softwareVersion: point.softwareVersion,
-            source: point.source ?? args.provider,
-            deviceType: point.deviceType,
-            originalSourceName: point.originalSourceName,
-          },
-        );
-
-        const key = `${dataSourceId}::${point.seriesType}`;
-        const group = pointGroups.get(key) ?? {
-          dataSourceId,
-          seriesType: point.seriesType,
-          points: [],
+        const batch = all.slice(offset, offset + EVENT_BATCH_SIZE);
+        return {
+          events: batch,
+          dataPoints: [],
+          summaries: [],
+          nextCursor: offset + batch.length < all.length ? String(offset + batch.length) : null,
         };
-        group.points.push({
-          recordedAt: point.recordedAt,
-          value: point.value,
-          externalId: point.externalId,
-        });
-        pointGroups.set(key, group);
       }
 
-      for (const group of pointGroups.values()) {
-        for (let i = 0; i < group.points.length; i += DATA_POINT_BATCH_SIZE) {
-          await ctx.runMutation(internal.dataPoints.storeBatch, {
-            dataSourceId: group.dataSourceId,
-            seriesType: group.seriesType,
-            points: group.points.slice(i, i + DATA_POINT_BATCH_SIZE),
-          });
-          recordsProcessed += Math.min(DATA_POINT_BATCH_SIZE, group.points.length - i);
-        }
+      if (args.phase === "dataPoints") {
+        const all = sortDataPoints(
+          providerDef.fetchDataPoints
+            ? await providerDef.fetchDataPoints(accessToken, startDate, endDate, credentials)
+            : [],
+        );
+        const batch = all.slice(offset, offset + DATA_POINT_BATCH_SIZE);
+        return {
+          events: [],
+          dataPoints: batch,
+          summaries: [],
+          nextCursor: offset + batch.length < all.length ? String(offset + batch.length) : null,
+        };
       }
 
-      const summaries = providerDef.fetchDailySummaries
-        ? await providerDef.fetchDailySummaries(
-            accessToken,
-            args.startDate,
-            args.endDate,
-            credentials,
-          )
-        : [];
-
-      for (const summary of summaries) {
-        await ctx.runMutation(internal.summaries.upsert, {
-          userId: args.userId,
-          ...summary,
-        });
-        recordsProcessed += 1;
-      }
-
-      // 5. Mark connection as synced
-      await ctx.runMutation(internal.connections.markSynced, {
-        connectionId: args.connectionId,
-      });
-
-      // 6. Update sync job status
-      await ctx.runMutation(internal.syncJobs.updateStatus, {
-        jobId: syncJobId,
-        status: "completed",
-        recordsProcessed,
-      });
+      const all = sortSummaries(
+        providerDef.fetchDailySummaries
+          ? await providerDef.fetchDailySummaries(accessToken, startDate, endDate, credentials)
+          : [],
+      );
+      const batch = all.slice(offset, offset + SUMMARY_BATCH_SIZE);
+      return {
+        events: [],
+        dataPoints: [],
+        summaries: batch,
+        nextCursor: offset + batch.length < all.length ? String(offset + batch.length) : null,
+      };
     } catch (error) {
-      // Mark sync job as failed
-      await ctx.runMutation(internal.syncJobs.updateStatus, {
-        jobId: syncJobId,
-        status: "failed",
-        error: error instanceof Error ? error.message : String(error),
-      });
-
-      // If token error, mark connection status
-      if (error instanceof Error && error.message.includes("Authorization expired")) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (
+        message.includes("Authorization expired") ||
+        message.includes("Token expired") ||
+        message.includes("Token refresh failed")
+      ) {
         await ctx.runMutation(internal.connections.updateStatus, {
-          connectionId: args.connectionId,
+          connectionId: connection._id,
           status: "expired",
         });
       }
-
       throw error;
     }
   },
 });
 
-/**
- * Sync all active connections for all users.
- * Intended to be called by a Convex cron (e.g., every 15 minutes).
- */
+export const runConnectionSync = durableWorkflow.define({
+  args: {
+    syncJobId: v.id("syncJobs"),
+  },
+  returns: v.object({
+    recordsProcessed: v.number(),
+  }),
+  handler: async (step, args): Promise<{ recordsProcessed: number }> => {
+    const job = await step.runQuery(internal.syncJobs.getById, {
+      jobId: args.syncJobId,
+    });
+    if (!job) {
+      throw new Error(`Sync job ${args.syncJobId} not found`);
+    }
+
+    const connection = await step.runQuery(internal.connections.getById, {
+      connectionId: job.connectionId,
+    });
+    if (!connection) {
+      throw new Error(`Connection ${job.connectionId} not found`);
+    }
+
+    let processed = 0;
+    const sourceCache: DataSourceCache = new Map();
+
+    await step.runMutation(internal.syncJobs.updateStatus, {
+      jobId: args.syncJobId,
+      status: "running",
+      workflowId: job.workflowId,
+      lastHeartbeatAt: Date.now(),
+    });
+
+    for (const phase of ["events", "dataPoints", "summaries"] as SyncPhase[]) {
+      let cursor: string | undefined;
+
+      while (true) {
+        const batch = await step.runAction(internal.syncWorkflow.fetchSyncPhaseBatch, {
+          syncJobId: args.syncJobId,
+          phase,
+          cursor,
+        });
+
+        if (phase === "events" && batch.events.length > 0) {
+          const eventDocs = await Promise.all(
+            batch.events.map(async (event: NormalizedEvent) => {
+              const dataSourceId = await ensureDataSource(
+                step,
+                {
+                  userId: job.userId,
+                  provider: job.provider,
+                  connectionId: connection._id,
+                },
+                sourceCache,
+                {
+                  deviceModel: event.deviceModel,
+                  softwareVersion: event.softwareVersion,
+                  source: event.source ?? job.provider,
+                  deviceType: event.deviceType,
+                  originalSourceName: event.originalSourceName,
+                },
+              );
+
+              return toEventDoc(event, dataSourceId, job.userId);
+            }),
+          );
+
+          await step.runMutation(internal.events.storeEventBatch, {
+            events: eventDocs,
+          });
+          processed += batch.events.length;
+        }
+
+        if (phase === "dataPoints" && batch.dataPoints.length > 0) {
+          const grouped = new Map<
+            string,
+            {
+              dataSourceId: Id<"dataSources">;
+              seriesType: string;
+              points: Array<{
+                recordedAt: number;
+                value: number;
+                externalId?: string;
+              }>;
+            }
+          >();
+
+          for (const point of batch.dataPoints as NormalizedDataPoint[]) {
+            const dataSourceId = await ensureDataSource(
+              step,
+              {
+                userId: job.userId,
+                provider: job.provider,
+                connectionId: connection._id,
+              },
+              sourceCache,
+              {
+                deviceModel: point.deviceModel,
+                softwareVersion: point.softwareVersion,
+                source: point.source ?? job.provider,
+                deviceType: point.deviceType,
+                originalSourceName: point.originalSourceName,
+              },
+            );
+
+            const key = `${dataSourceId}::${point.seriesType}`;
+            const group = grouped.get(key) ?? {
+              dataSourceId,
+              seriesType: point.seriesType,
+              points: [],
+            };
+            group.points.push({
+              recordedAt: point.recordedAt,
+              value: point.value,
+              externalId: point.externalId,
+            });
+            grouped.set(key, group);
+          }
+
+          for (const group of grouped.values()) {
+            await step.runMutation(internal.dataPoints.storeBatch, {
+              dataSourceId: group.dataSourceId,
+              seriesType: group.seriesType,
+              points: group.points,
+            });
+          }
+
+          processed += batch.dataPoints.length;
+        }
+
+        if (phase === "summaries" && batch.summaries.length > 0) {
+          for (const summary of batch.summaries as NormalizedDailySummary[]) {
+            await step.runMutation(internal.summaries.upsert, {
+              userId: job.userId,
+              ...summary,
+            });
+          }
+          processed += batch.summaries.length;
+        }
+
+        cursor = batch.nextCursor ?? undefined;
+        await step.runMutation(internal.syncJobs.updateStatus, {
+          jobId: args.syncJobId,
+          status: "running",
+          currentPhase: phase,
+          cursor,
+          recordsProcessed: processed,
+          lastHeartbeatAt: Date.now(),
+        });
+
+        if (!cursor) {
+          break;
+        }
+      }
+    }
+
+    await step.runMutation(internal.connections.markSynced, {
+      connectionId: connection._id,
+    });
+
+    return { recordsProcessed: processed };
+  },
+});
+
+export const handleConnectionSyncComplete = internalMutation({
+  args: {
+    workflowId: v.string(),
+    result: v.any(),
+    context: v.object({
+      syncJobId: v.id("syncJobs"),
+    }),
+  },
+  handler: async (ctx, args) => {
+    const job = await ctx.db.get(args.context.syncJobId);
+    if (!job) return;
+
+    if (args.result.kind === "success") {
+      const returnValue = (args.result.returnValue ?? {}) as { recordsProcessed?: number };
+      await ctx.db.patch(job._id, {
+        status: "completed",
+        completedAt: Date.now(),
+        recordsProcessed: returnValue.recordsProcessed ?? job.recordsProcessed ?? 0,
+        workflowId: args.workflowId,
+        lastHeartbeatAt: Date.now(),
+      });
+      return;
+    }
+
+    if (args.result.kind === "canceled") {
+      await ctx.db.patch(job._id, {
+        status: "canceled",
+        completedAt: Date.now(),
+        workflowId: args.workflowId,
+        lastHeartbeatAt: Date.now(),
+      });
+      return;
+    }
+
+    await ctx.db.patch(job._id, {
+      status: "failed",
+      completedAt: Date.now(),
+      error: args.result.error,
+      workflowId: args.workflowId,
+      lastHeartbeatAt: Date.now(),
+    });
+  },
+});
+
+export const syncConnection = action({
+  args: {
+    connectionId: v.id("connections"),
+    provider: providerName,
+    startDate: v.optional(v.number()),
+    endDate: v.optional(v.number()),
+    syncWindowHours: v.optional(v.number()),
+    clientId: v.optional(v.string()),
+    clientSecret: v.optional(v.string()),
+    subscriptionKey: v.optional(v.string()),
+  },
+  returns: v.object({
+    syncJobId: v.string(),
+    workflowId: v.string(),
+    deduped: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const connection = await ctx.runQuery(internal.connections.getById, {
+      connectionId: args.connectionId,
+    });
+    if (!connection) {
+      throw new Error(`Connection ${args.connectionId} not found`);
+    }
+    if (connection.provider !== args.provider) {
+      throw new Error(`Connection ${args.connectionId} does not belong to provider "${args.provider}"`);
+    }
+
+    if ((args.clientId && !args.clientSecret) || (!args.clientId && args.clientSecret)) {
+      throw new Error("clientId and clientSecret must be provided together");
+    }
+
+    if (args.clientId && args.clientSecret) {
+      await ctx.runMutation(internal.providerSettings.upsertCredentials, {
+        provider: args.provider,
+        clientId: args.clientId,
+        clientSecret: args.clientSecret,
+        subscriptionKey: args.subscriptionKey,
+      });
+    }
+
+    const endDate = args.endDate ?? Date.now();
+    const defaultWindowMs = (args.syncWindowHours ?? DEFAULT_SYNC_WINDOW_HOURS) * 60 * 60 * 1000;
+    const startDate =
+      args.startDate ?? Math.max(connection.lastSyncedAt ?? endDate - defaultWindowMs, endDate - defaultWindowMs);
+
+    const result = await ctx.runMutation(internal.syncWorkflow.requestConnectionSync, {
+      connectionId: args.connectionId,
+      mode: "manual",
+      triggerSource: "manual:syncConnection",
+      windowStart: startDate,
+      windowEnd: endDate,
+    });
+
+    return {
+      syncJobId: String(result.syncJobId),
+      workflowId: result.workflowId,
+      deduped: result.deduped,
+    };
+  },
+});
+
 export const syncAllActive = action({
   args: {
     clientCredentials: v.object({
@@ -354,38 +662,66 @@ export const syncAllActive = action({
         }),
       ),
     }),
-    syncWindowHours: v.optional(v.number()), // default: 24
+    syncWindowHours: v.optional(v.number()),
   },
+  returns: v.object({
+    enqueued: v.number(),
+    deduped: v.number(),
+    skipped: v.number(),
+  }),
   handler: async (ctx, args) => {
     const activeConnections = await ctx.runQuery(internal.connections.getAllActive, {});
     const endDate = Date.now();
+    let enqueued = 0;
+    let deduped = 0;
+    let skipped = 0;
 
     for (const conn of activeConnections) {
       const creds = args.clientCredentials[conn.provider as keyof typeof args.clientCredentials];
-      if (!creds) continue;
-
-      const windowMs = (args.syncWindowHours ?? 24) * 60 * 60 * 1000;
-      const startDate = Math.max(conn.lastSyncedAt ?? endDate - windowMs, endDate - windowMs);
-
-      try {
-        await ctx.runAction(internal.syncWorkflow.syncConnection, {
-          connectionId: conn._id,
-          userId: conn.userId,
+      if (creds) {
+        await ctx.runMutation(internal.providerSettings.upsertCredentials, {
           provider: conn.provider,
-          accessToken: conn.accessToken,
-          refreshToken: conn.refreshToken,
-          tokenExpiresAt: conn.tokenExpiresAt,
           clientId: creds.clientId,
           clientSecret: creds.clientSecret,
           subscriptionKey: "subscriptionKey" in creds ? creds.subscriptionKey : undefined,
-          startDate,
-          endDate,
         });
+      } else {
+        const stored = await ctx.runQuery(internal.providerSettings.getCredentials, {
+          provider: conn.provider,
+        });
+        if (!stored) {
+          skipped += 1;
+          continue;
+        }
+      }
+
+      if (!getProvider(conn.provider)) {
+        skipped += 1;
+        continue;
+      }
+
+      const windowMs = (args.syncWindowHours ?? DEFAULT_SYNC_WINDOW_HOURS) * 60 * 60 * 1000;
+      const startDate = Math.max(conn.lastSyncedAt ?? endDate - windowMs, endDate - windowMs);
+
+      try {
+        const result = await ctx.runMutation(internal.syncWorkflow.requestConnectionSync, {
+          connectionId: conn._id,
+          mode: "cron",
+          triggerSource: "cron:syncAllActive",
+          windowStart: startDate,
+          windowEnd: endDate,
+        });
+
+        if (result.deduped) {
+          deduped += 1;
+        } else {
+          enqueued += 1;
+        }
       } catch {
-        // Individual connection failures shouldn't stop the entire sync.
-        // Errors are already logged in the sync job record.
-        console.error(`Sync failed for connection ${conn._id}`);
+        skipped += 1;
       }
     }
+
+    return { enqueued, deduped, skipped };
   },
 });
