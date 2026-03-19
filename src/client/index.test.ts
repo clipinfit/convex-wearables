@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { getSdkSyncPath, getSdkSyncUrl, WearablesClient } from "./index";
+import {
+  getSdkSyncPath,
+  getSdkSyncUrl,
+  oauthCallback,
+  stravaWebhookEvent,
+  stravaWebhookVerify,
+  WearablesClient,
+} from "./index";
 
 describe("sdk route helpers", () => {
   it("returns null when the sdk sync route is not configured", () => {
@@ -32,5 +39,13 @@ describe("sdk route helpers", () => {
     expect(getSdkSyncUrl("https://example.convex.site/", config)).toBe(
       "https://example.convex.site/mobile/sdk-sync",
     );
+  });
+});
+
+describe("package exports", () => {
+  it("re-exports standalone http handlers from the package root", () => {
+    expect(typeof oauthCallback).toBe("function");
+    expect(typeof stravaWebhookVerify).toBe("function");
+    expect(typeof stravaWebhookEvent).toBe("function");
   });
 });

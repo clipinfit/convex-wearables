@@ -39,6 +39,11 @@ import type {
   WearablesConfig,
 } from "./types.js";
 
+export {
+  oauthCallback,
+  stravaWebhookEvent,
+  stravaWebhookVerify,
+} from "../component/httpHandlers.js";
 export type { SeriesType, SleepEvent, SleepStage, WorkoutEvent } from "./types.js";
 export { SERIES_TYPES } from "./types.js";
 // Re-export types for consumers
