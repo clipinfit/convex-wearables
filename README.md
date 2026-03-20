@@ -1,5 +1,7 @@
 # @clipin/convex-wearables
 
+[![Convex Component](https://www.convex.dev/components/badge/clipin/convex-wearables)](https://www.convex.dev/components/clipin/convex-wearables)
+
 A [Convex component](https://docs.convex.dev/components) for wearable device integrations. Sync health data from **Garmin, Strava, Whoop, Polar, Suunto, Apple HealthKit, Samsung Health, and Google Health Connect** into your Convex app.
 
 Built as a drop-in module: install the component, pass your provider credentials, and start querying workouts, sleep sessions, heart rate, and 88 pre-defined health metrics — all in TypeScript, no backend glue code required.
