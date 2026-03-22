@@ -1,3 +1,8 @@
+---
+date: 2026-03-19
+status: NOT_IMPLEMENTED
+---
+
 # Outbound Garmin Training v1 for `convex-wearables`
 
 ## Summary
