@@ -14,6 +14,7 @@ import type {
   HttpRouter,
 } from "convex/server";
 import { httpActionGeneric } from "convex/server";
+import type { ComponentApi } from "../component/_generated/component.js";
 import type {
   AggregateStats,
   BackfillJob,
@@ -76,8 +77,7 @@ export type {
 // Component type — represents the installed component reference
 // ---------------------------------------------------------------------------
 
-// biome-ignore lint/suspicious/noExplicitAny: Convex component references are opaque generated function tables.
-export type WearablesComponent = Record<string, any>;
+export type WearablesComponent = ComponentApi;
 type QueryRunner =
   | Pick<GenericQueryCtx<GenericDataModel>, "runQuery">
   | Pick<GenericActionCtx<GenericDataModel>, "runQuery">;

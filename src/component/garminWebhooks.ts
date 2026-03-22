@@ -56,6 +56,7 @@ export const processPushPayload = action({
     payloadJson: v.optional(v.string()),
     garminClientId: v.string(),
   },
+  returns: v.null(),
   handler: async (ctx, args) => {
     const payload = decodePushPayload(args);
     const signalBuckets = new Map<string, Set<string>>();
@@ -432,6 +433,8 @@ export const processPushPayload = action({
         });
       }
     }
+
+    return null;
   },
 });
 

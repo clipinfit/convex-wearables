@@ -11,6 +11,7 @@ import { mutation } from "./_generated/server";
  */
 export const deleteAllUserData = mutation({
   args: { userId: v.string() },
+  returns: v.null(),
   handler: async (ctx, args) => {
     const { userId } = args;
 
@@ -80,5 +81,7 @@ export const deleteAllUserData = mutation({
     for (const job of jobs) {
       await ctx.db.delete(job._id);
     }
+
+    return null;
   },
 });

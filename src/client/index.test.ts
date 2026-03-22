@@ -6,6 +6,7 @@ import {
   stravaWebhookEvent,
   stravaWebhookVerify,
   WearablesClient,
+  type WearablesComponent,
 } from "./index";
 
 describe("sdk route helpers", () => {
@@ -16,7 +17,7 @@ describe("sdk route helpers", () => {
 
   it("returns the default sdk sync path and url when enabled", () => {
     const config = { sdk: {} };
-    const client = new WearablesClient({}, { providers: {} });
+    const client = new WearablesClient({} as WearablesComponent, { providers: {} });
 
     expect(getSdkSyncPath(config)).toBe("/sdk/sync");
     expect(getSdkSyncUrl("https://example.convex.site", config)).toBe(

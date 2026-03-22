@@ -286,6 +286,7 @@ export const disconnect = mutation({
     userId: v.string(),
     provider: providerName,
   },
+  returns: v.null(),
   handler: async (ctx, args) => {
     const conn = await ctx.db
       .query("connections")
@@ -302,6 +303,8 @@ export const disconnect = mutation({
         tokenExpiresAt: undefined,
       });
     }
+
+    return null;
   },
 });
 
