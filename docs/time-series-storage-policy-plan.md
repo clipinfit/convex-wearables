@@ -1,6 +1,7 @@
 ---
 date: 2026-03-22
 status: NOT_IMPLEMENTED
+semver: minor
 ---
 
 # Time-Series Storage Policy Plan for `convex-wearables`

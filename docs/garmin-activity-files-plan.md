@@ -1,6 +1,7 @@
 ---
 date: 2026-03-22
 status: NOT_IMPLEMENTED
+semver: minor
 ---
 
 # Garmin Activity Files Support Plan for `convex-wearables`
