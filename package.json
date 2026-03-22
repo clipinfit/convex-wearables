@@ -1,6 +1,6 @@
 {
   "name": "@clipin/convex-wearables",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Convex component for wearable device integrations — sync health data from Garmin, Strava, Whoop, Polar, Suunto, Apple HealthKit, Samsung Health, and Google Health Connect.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/clipinfit/convex-wearables#readme",
