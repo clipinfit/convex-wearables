@@ -53,13 +53,16 @@ describe("garminWebhooks", () => {
           {
             userId: "garmin-user-1",
             activityId: 202,
-            activityType: "CYCLING",
-            startTimeInSeconds: dayStart + 7200,
-            durationInSeconds: 2700,
-            deviceName: "Edge 1040",
-            averageHeartRateInBeatsPerMinute: 138,
-            maxHeartRateInBeatsPerMinute: 170,
-            distanceInMeters: 18000,
+            summaryId: "202-detail",
+            summary: {
+              activityType: "CYCLING",
+              startTimeInSeconds: dayStart + 7200,
+              durationInSeconds: 2700,
+              deviceName: "Edge 1040",
+              averageHeartRateInBeatsPerMinute: 138,
+              maxHeartRateInBeatsPerMinute: 170,
+              distanceInMeters: 18000,
+            },
           },
         ],
         sleeps: [
@@ -340,6 +343,128 @@ describe("garminWebhooks", () => {
       ]),
     );
     expect(result.menstrualCycles).toHaveLength(1);
+  });
+
+  it("keeps existing activity timestamps intact when Garmin sends nested activityDetails", async () => {
+    const t = createTest();
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("connections", {
+        userId: "user-activity-details",
+        provider: "garmin",
+        providerUserId: "garmin-user-activity-details",
+        accessToken: "garmin-token",
+        status: "active",
+      });
+    });
+
+    const startTimeInSeconds = Math.floor(Date.parse("2026-03-20T09:00:00Z") / 1000);
+    const durationInSeconds = 3421;
+
+    await t.action(api.garminWebhooks.processPushPayload, {
+      garminClientId: "garmin-client",
+      payload: {
+        activities: [
+          {
+            userId: "garmin-user-activity-details",
+            activityId: 22258974253,
+            activityType: "RUNNING",
+            startTimeInSeconds,
+            durationInSeconds,
+            averageHeartRateInBeatsPerMinute: 156,
+            maxHeartRateInBeatsPerMinute: 173,
+            activeKilocalories: 753,
+            distanceInMeters: 10016.89,
+            steps: 9290,
+            averageSpeedInMetersPerSecond: 2.928,
+            maxSpeedInMetersPerSecond: 3.835,
+            totalElevationGainInMeters: 52.2,
+          },
+        ],
+      },
+    });
+
+    await t.action(api.garminWebhooks.processPushPayload, {
+      garminClientId: "garmin-client",
+      payload: {
+        activityDetails: [
+          {
+            userId: "garmin-user-activity-details",
+            activityId: 22258974253,
+            summaryId: "22258974253-detail",
+            summary: {
+              activityType: "RUNNING",
+              startTimeInSeconds,
+              durationInSeconds,
+              averageHeartRateInBeatsPerMinute: 156,
+              maxHeartRateInBeatsPerMinute: 173,
+              activeKilocalories: 753,
+              distanceInMeters: 10016.89,
+              steps: 9290,
+              averageSpeedInMetersPerSecond: 2.928,
+              maxSpeedInMetersPerSecond: 3.835,
+              totalElevationGainInMeters: 52.2,
+            },
+          },
+        ],
+      },
+    });
+
+    const events = await t.run(async (ctx) => {
+      return await ctx.db.query("events").collect();
+    });
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      externalId: "garmin-22258974253",
+      type: "running",
+      sourceName: "Garmin",
+      durationSeconds: durationInSeconds,
+      startDatetime: startTimeInSeconds * 1000,
+      endDatetime: (startTimeInSeconds + durationInSeconds) * 1000,
+      energyBurned: 753,
+      distance: 10016.89,
+      averageSpeed: 2.928,
+      maxSpeed: 3.835,
+      totalElevationGain: 52.2,
+    });
+    expect(Number.isNaN(events[0]?.startDatetime)).toBe(false);
+    expect(Number.isNaN(events[0]?.endDatetime)).toBe(false);
+  });
+
+  it("skips Garmin activities whose timing cannot be parsed", async () => {
+    const t = createTest();
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("connections", {
+        userId: "user-invalid-activity",
+        provider: "garmin",
+        providerUserId: "garmin-user-invalid-activity",
+        accessToken: "garmin-token",
+        status: "active",
+      });
+    });
+
+    await t.action(api.garminWebhooks.processPushPayload, {
+      garminClientId: "garmin-client",
+      payload: {
+        activities: [
+          {
+            userId: "garmin-user-invalid-activity",
+            activityId: 303,
+            activityType: "RUNNING",
+            startTimeInSeconds: "not-a-timestamp",
+            durationInSeconds: 1800,
+          },
+        ],
+      },
+    });
+
+    const events = await t.run(async (ctx) => {
+      return await ctx.db.query("events").collect();
+    });
+
+    expect(events).toHaveLength(0);
   });
 
   it("updates Garmin scopes and revokes connections on deregistration", async () => {

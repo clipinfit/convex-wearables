@@ -449,10 +449,25 @@ async function processActivityEntries(
     const connection = await resolveConnection(ctx, activity.userId);
     if (!connection) continue;
 
-    const dataSourceId = await resolveDataSource(ctx, connection, activity.deviceName);
+    const dataSourceId = await resolveDataSource(
+      ctx,
+      connection,
+      activity.summary?.deviceName ?? activity.deviceName,
+    );
     if (!dataSourceId) continue;
 
     const event = normalizeActivity(activity);
+    if (!event) {
+      console.warn("Skipping Garmin activity with invalid timing", {
+        dataType,
+        activityId: activity.activityId,
+        summaryId: activity.summaryId ?? activity.summary?.summaryId,
+        startTimeInSeconds: activity.summary?.startTimeInSeconds ?? activity.startTimeInSeconds,
+        durationInSeconds: activity.summary?.durationInSeconds ?? activity.durationInSeconds,
+      });
+      continue;
+    }
+
     await ctx.runMutation(internal.events.storeEvent, {
       dataSourceId,
       userId: connection.userId,

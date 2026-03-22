@@ -49,15 +49,14 @@ export function garminOAuthConfig(credentials: ProviderCredentials): OAuthProvid
 // Garmin API types (push webhook payloads)
 // ---------------------------------------------------------------------------
 
-export interface GarminActivity {
-  userId: string;
-  activityId: number | string;
+export interface GarminActivitySummaryData {
+  activityId?: number | string;
   summaryId?: string;
   activityName?: string;
-  activityType: string;
-  startTimeInSeconds: number;
-  startTimeOffsetInSeconds?: number;
-  durationInSeconds: number;
+  activityType?: string;
+  startTimeInSeconds?: number | string;
+  startTimeOffsetInSeconds?: number | string;
+  durationInSeconds?: number | string;
   deviceName?: string;
   distanceInMeters?: number;
   steps?: number;
@@ -72,6 +71,12 @@ export interface GarminActivity {
   elapsedDurationInSeconds?: number;
   movingDurationInSeconds?: number;
   manual?: boolean;
+}
+
+export interface GarminActivity extends GarminActivitySummaryData {
+  userId: string;
+  activityId: number | string;
+  summary?: GarminActivitySummaryData;
 }
 
 export interface GarminSleep {
@@ -397,38 +402,82 @@ const WORKOUT_TYPE_MAP: Record<string, string> = {
 };
 
 function getUnifiedWorkoutType(activityType: string): string {
-  return WORKOUT_TYPE_MAP[activityType] ?? "other";
+  return WORKOUT_TYPE_MAP[activityType.trim().toUpperCase()] ?? "other";
+}
+
+function coerceFiniteNumber(value: number | string | undefined): number | null {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const numericValue = Number(trimmed);
+  return Number.isFinite(numericValue) ? numericValue : null;
+}
+
+function parseGarminTimestampMs(value: number | string | undefined): number | null {
+  const numericValue = coerceFiniteNumber(value);
+  if (numericValue != null) {
+    return numericValue * 1000;
+  }
+
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function getActivitySummary(activity: GarminActivity): GarminActivitySummaryData {
+  return activity.summary ?? activity;
 }
 
 // ---------------------------------------------------------------------------
 // Normalization — Activities
 // ---------------------------------------------------------------------------
 
-export function normalizeActivity(activity: GarminActivity): NormalizedEvent {
-  const startMs = activity.startTimeInSeconds * 1000;
-  const endMs = startMs + activity.durationInSeconds * 1000;
+export function normalizeActivity(activity: GarminActivity): NormalizedEvent | null {
+  const summary = getActivitySummary(activity);
+  const startMs = parseGarminTimestampMs(summary.startTimeInSeconds);
+  const durationSeconds = coerceFiniteNumber(summary.durationInSeconds);
+
+  if (startMs == null || durationSeconds == null) {
+    return null;
+  }
+
+  const activityId = activity.activityId ?? summary.activityId;
+  const endMs = startMs + durationSeconds * 1000;
 
   return {
     category: "workout",
-    type: getUnifiedWorkoutType(activity.activityType),
-    sourceName: activity.deviceName ?? "Garmin",
-    deviceModel: activity.deviceName,
-    durationSeconds: activity.durationInSeconds,
+    type: summary.activityType ? getUnifiedWorkoutType(summary.activityType) : "other",
+    sourceName: summary.deviceName ?? "Garmin",
+    deviceModel: summary.deviceName,
+    durationSeconds,
     startDatetime: startMs,
     endDatetime: endMs,
-    externalId: `garmin-${activity.activityId}`,
+    externalId: activityId != null ? `garmin-${activityId}` : undefined,
 
-    heartRateAvg: activity.averageHeartRateInBeatsPerMinute,
-    heartRateMax: activity.maxHeartRateInBeatsPerMinute,
-    energyBurned: activity.activeKilocalories,
-    distance: activity.distanceInMeters,
-    stepsCount: activity.steps,
-    averageSpeed: activity.averageSpeedInMetersPerSecond,
-    maxSpeed: activity.maxSpeedInMetersPerSecond,
-    averageWatts: activity.averagePowerInWatts,
-    maxWatts: activity.maxPowerInWatts,
-    totalElevationGain: activity.totalElevationGainInMeters,
-    movingTimeSeconds: activity.movingDurationInSeconds,
+    heartRateAvg: summary.averageHeartRateInBeatsPerMinute,
+    heartRateMax: summary.maxHeartRateInBeatsPerMinute,
+    energyBurned: summary.activeKilocalories,
+    distance: summary.distanceInMeters,
+    stepsCount: summary.steps,
+    averageSpeed: summary.averageSpeedInMetersPerSecond,
+    maxSpeed: summary.maxSpeedInMetersPerSecond,
+    averageWatts: summary.averagePowerInWatts,
+    maxWatts: summary.maxPowerInWatts,
+    totalElevationGain: summary.totalElevationGainInMeters,
+    movingTimeSeconds: summary.movingDurationInSeconds,
   };
 }
 
