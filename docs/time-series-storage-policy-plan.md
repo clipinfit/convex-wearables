@@ -1,5 +1,5 @@
 ---
-date: 2026-03-22
+date: 2026-03-23
 status: NOT_IMPLEMENTED
 semver: minor
 ---
@@ -7,138 +7,332 @@ semver: minor
 # Time-Series Storage Policy Plan for `convex-wearables`
 
 ## Summary
-- Add a component-managed storage policy so consumers can control how high-volume time-series data is stored without blocking full-fidelity sync.
-- Treat this as a storage and query policy, not a sync policy. Providers should still ingest all supported data; the policy decides what is retained raw, rolled up, or summarized.
-- Start with Garmin as the main driver, but design the policy generically so it also covers Suunto and SDK push sources that can produce dense point streams.
+- Replace the first storage-policy design based on coarse `mode` values with a more explicit tiered retention model.
+- Let consumers describe storage policy in human terms:
+  - keep raw for `24h`
+  - then keep `30m` rollups until `7d`
+  - then either delete, or keep coarser rollups forever
+- Keep full-fidelity provider sync behavior unchanged. This is a storage and query policy only.
+- Design the policy surface so it can support:
+  - deployment-wide defaults
+  - per-user overrides or preset assignment
+  - future plan-based retention tiers in host apps
+
+## Why The Previous `mode` Model Is Not Enough
+- The initial `full` / `retained_rollup` / `summary_only` model is workable for a narrow first pass, but it hides the real storage policy behind a few implicit shapes.
+- Consumers think in terms of retention windows and resolutions, not in terms of abstract modes.
+- Real product requirements quickly become more expressive than a single mode:
+  - raw for `24h`
+  - `30m` rollups for `7d`
+  - then `1h` rollups forever
+  - or delete everything older than `7d`
+- That means the durable concept should be storage tiers by age, not a single mode plus one or two parameters.
 
 ## Goals
 - Preserve current behavior by default for backward compatibility.
-- Give consumers explicit control over retention and bucket granularity for expensive series like `heart_rate`.
-- Keep the component reusable for apps that need either full-fidelity telemetry or only practical product-level charts.
-- Centralize enforcement in shared ingestion and query paths instead of scattering provider-specific logic.
+- Make storage policy explicit enough that consumers can understand it at a glance.
+- Support dense streams like Garmin heart rate without forcing infinite raw retention.
+- Keep the policy generic so it also works for Suunto and SDK push sources.
+- Allow future support for app-wide defaults plus user-specific plan overrides.
+- Minimize operational strain on host deployments by making background maintenance deliberate and bounded.
 
 ## Non-Goals
 - Do not reduce provider sync coverage or refuse supported data types.
-- Do not make this user-specific in the first iteration.
-- Do not introduce a Garmin-only one-off that cannot extend to other providers or SDK push ingestion.
+- Do not make query-time aggregation the main answer to row explosion. If the goal is fewer rows, storage must actually be compacted or deleted.
+- Do not force scheduled maintenance for every deployment in the first shipping phase.
+- Do not overfit to Garmin only.
 
-## Why This Is Needed
-- Garmin can emit dense heart-rate samples throughout the day, which grows `dataPoints` quickly.
-- Similar pressure can appear in other integrations:
-  - Suunto activity samples can emit dense `heart_rate`, `steps`, `oxygen_saturation`, and `energy`.
-  - SDK push can submit arbitrary raw data-point streams.
-- The component already has coarse-grained `dailySummaries`, but current time-series queries still rely on raw `dataPoints`.
+## Product Direction
 
-## Recommended Product Direction
+### 1. Replace `mode`-first configuration with tiered storage windows
+- Define policy as ordered tiers by data age.
+- Each tier answers:
+  - what representation is stored in this age window
+  - for how long that representation is retained
+- The two main representations are:
+  - raw
+  - rollup with a bucket size
 
-### 1. Introduce a persisted storage policy surface
-- Add a component-owned policy configuration stored in Convex, similar in spirit to persisted provider credentials.
-- Policy precedence should be:
-  - global defaults
-  - provider override
-  - series override
-- The host app should configure the policy through the component API, but webhook and workflow execution should read the persisted policy from component state.
+### 2. Use human-friendly durations in the public API
+- The configuration should accept user-friendly durations such as:
+  - `15m`
+  - `24h`
+  - `7d`
+  - `30d`
+- Use an `ms`-style parser at the API boundary for ergonomics.
+- Normalize durations into numeric milliseconds or minutes before persisting.
+- Persist normalized values, not the original strings, so reads and internal jobs stay simple.
 
-### 2. Model this as storage modes
-- Start with a small set of modes:
-  - `full`: store raw points indefinitely, matching current behavior
-  - `retained_rollup`: store raw points for a hot window, roll older data into buckets
-  - `summary_only`: skip raw long-term storage and rely on summaries or coarse rollups where appropriate
-- This keeps full syncing available while giving consumers a deliberate way to manage growth.
+### 3. Model total retention explicitly
+- If no tier covers data older than a given age, that data is deleted.
+- This is clearer than having a hidden assumption that rollups always live forever.
+- Consumers should be able to express all of these:
+  - raw `24h`, rollup `30m` forever
+  - raw `24h`, rollup `30m` until `7d`, then delete
+  - raw `24h`, rollup `30m` until `7d`, then rollup `1h` forever
 
-### 3. Keep the first policy knobs small and explicit
-- `rawRetentionDays`
-- `bucketMinutes`
-- `aggregations`
-- Optional `appliesToProviders`
-- Optional `appliesToSeries`
+### 4. Treat global and per-user policy as separate layers
+- There are two real use cases:
+  - one policy for the whole deployment
+  - default policy plus user-specific overrides for subscription tiers or special cases
+- The design should support both, even if implementation ships in phases.
 
-For example, consumers should be able to express:
-- keep Garmin `heart_rate` raw for 7 days
-- then retain 1-minute buckets for 90 days
-- keep daily summaries forever
+## Proposed Policy Shape
 
-### 4. Add a rollup storage tier
-- Introduce a dedicated bucketed time-series table rather than overloading `dailySummaries`.
-- Each rollup bucket should retain enough shape for charts and analytics:
-  - `avg`
-  - `min`
-  - `max`
-  - `last`
-  - `count`
-- A simple average alone is too lossy for heart-rate visualizations.
+### Core tier model
 
-### 5. Route reads through best-available resolution
-- Short-range queries should continue to use raw points when available.
-- Longer-range queries should use rollups.
-- Date spans that exceed raw retention should never require scanning raw historical points.
-- Keep the read contract simple at first; resolution can be inferred from the requested range and policy.
+```ts
+type TimeSeriesTier =
+  | {
+      kind: "raw";
+      fromAge: string; // e.g. "0m"
+      toAge: string | null; // e.g. "24h", null = forever
+    }
+  | {
+      kind: "rollup";
+      fromAge: string;
+      toAge: string | null;
+      bucket: string; // e.g. "30m", "1h", "24h"
+      aggregations?: Array<"avg" | "min" | "max" | "last" | "count">;
+    };
 
-### 6. Roll out Garmin-first, not Garmin-only
-- Garmin is the immediate scaling concern and should drive validation of the design.
-- The same mechanism should then apply to:
-  - Suunto dense activity samples
-  - SDK push high-frequency time-series
-- Lower-volume providers such as current Whoop recovery/body data can simply remain on `full`.
+type TimeSeriesPolicyRule = {
+  provider?: ProviderName;
+  seriesType?: string;
+  tiers: TimeSeriesTier[];
+};
+```
+
+### Normalized persisted shape
+- Do not persist string durations directly.
+- Convert at write time to numeric fields like:
+  - `fromAgeMs`
+  - `toAgeMs`
+  - `bucketMs`
+
+### Interpretation rules
+- `fromAge` means the youngest age included in the tier.
+- `toAge` means the oldest age included in the tier.
+- `0m` means newest data.
+- `null` means forever.
+- Data older than the last matching tier is deleted.
+- Tiers must not overlap for the same rule.
+- Tiers should be ordered by age from newest to oldest.
+
+## Example Policies
+
+### Case 1
+- Raw `24h`
+- `30m` rollups for all older history forever
+
+```ts
+{
+  provider: "garmin",
+  seriesType: "heart_rate",
+  tiers: [
+    { kind: "raw", fromAge: "0m", toAge: "24h" },
+    { kind: "rollup", fromAge: "24h", toAge: null, bucket: "30m" },
+  ],
+}
+```
+
+### Case 2
+- Raw `24h`
+- `30m` rollups until `7d`
+- delete anything older than `7d`
+
+```ts
+{
+  provider: "garmin",
+  seriesType: "heart_rate",
+  tiers: [
+    { kind: "raw", fromAge: "0m", toAge: "24h" },
+    { kind: "rollup", fromAge: "24h", toAge: "7d", bucket: "30m" },
+  ],
+}
+```
+
+### Case 3
+- Raw `24h`
+- `30m` rollups until `7d`
+- `1h` rollups for older history forever
+
+```ts
+{
+  provider: "garmin",
+  seriesType: "heart_rate",
+  tiers: [
+    { kind: "raw", fromAge: "0m", toAge: "24h" },
+    { kind: "rollup", fromAge: "24h", toAge: "7d", bucket: "30m" },
+    { kind: "rollup", fromAge: "7d", toAge: null, bucket: "1h" },
+  ],
+}
+```
+
+## Row Math for Garmin Heart Rate
+- If Garmin emits one heart-rate point every `15s`, that is:
+  - `4` rows per minute
+  - `240` rows per hour
+  - `5760` rows per day
+- For raw `24h` plus `30m` rollups through day `7`:
+  - raw: `5760` rows
+  - older `6` days in `30m` buckets: `6 * 48 = 288` rows
+  - total: `6048` rows for a rolling `7d` window
+- By comparison:
+  - full raw `7d`: `40320` rows
+  - full `30m` rollups `7d`: `336` rows
 
 ## Architecture Plan
 
-### Storage policy data model
-- Add a dedicated table for time-series storage policies rather than overloading `providerSettings`.
-- Keep the schema generic enough to express global, provider-level, and series-level defaults.
-- Store policy records as component state so webhook processing, sync workflows, and SDK ingestion all use the same rules.
+### Policy storage
+- Add a dedicated policy table rather than overloading `providerSettings`.
+- Policy resolution precedence should eventually be:
+  1. user-specific override
+  2. user-assigned preset
+  3. deployment default policy
+  4. built-in fallback: full raw retention
 
-### Central policy application
-- Apply policy in the shared write path around batched data-point storage.
-- Avoid baking policy decisions into each provider adapter.
-- The enforcement point should sit where normalized points are grouped and written, so Garmin webhooks, pull syncs, and SDK push all behave consistently.
+### Presets vs direct user policy
+- Do not start with arbitrary per-user custom blobs unless necessary.
+- Prefer this progression:
+  1. deployment-wide policy only
+  2. policy presets plus `userId -> presetId` assignment
+  3. direct user override only if needed later
+- This matches typical subscription plans better than copying policy rows per user.
 
-### Rollup lifecycle
-- Raw writes enter the hot table first when the selected mode includes raw retention.
-- A scheduled compaction path rolls expired raw windows into configured buckets.
-- After successful rollup, old raw points are deleted according to retention.
+### Disconnect semantics
+- Disconnecting a provider should not implicitly mean immediate historical data deletion.
+- Disconnect should mean:
+  - stop future ingestion
+  - keep existing stored data under the same retention policy unless the host app explicitly purges it
+- If the effective policy has a finite oldest tier, disconnected data should continue aging out naturally until it reaches zero.
+- This gives the host app two clear choices:
+  - let data expire naturally under retention
+  - call an explicit purge/delete API if immediate removal is desired
+- Do not make “freeze historical data forever after disconnect” the default behavior, because that makes retention state depend on connection lifecycle in a way that is hard to reason about.
 
-### Query lifecycle
-- Query APIs should choose the narrowest necessary source:
-  - raw for recent ranges
-  - rollups for medium and long ranges
-  - `dailySummaries` for aggregate product views where daily data is sufficient
-- This reduces both storage cost and query scan pressure.
+### Query behavior
+- Queries should read from the narrowest stored resolution available for the requested age range.
+- Recent windows should use raw when raw exists.
+- Older windows should use the appropriate rollup tier.
+- Query behavior should not need to compute expensive ad hoc aggregation over historical raw rows.
 
-## Garmin-Specific Considerations
-- Review overlapping Garmin heart-rate sources before locking in defaults.
-- Daily payloads can already include:
-  - `avgHeartRate`
-  - `minHeartRate`
-  - `maxHeartRate`
-  - `restingHeartRate`
-  - fine-grained `timeOffsetHeartRateSamples`
-- Epoch payloads can also contribute heart-rate points.
-- If two Garmin feeds express overlapping semantics, choose one canonical raw source where possible to avoid unnecessary duplication.
+## Compaction And Retention Lifecycle
 
-## Suggested Initial Defaults
-- Global default: `full`
-- Garmin `heart_rate`: raw 7-14 days, 1-minute buckets for medium-term history, daily summaries forever
-- Garmin `respiratory_rate`, `oxygen_saturation`, `garmin_stress_level`, `garmin_body_battery`: 5-minute buckets unless a host app opts into full retention
-- Sparse metrics such as `weight`, `blood_pressure_*`, `resting_heart_rate`, `vo2_max`: keep full storage
-- SDK push default remains permissive until consumers opt into storage policy rules
+### Important distinction
+- If the goal is fewer Convex rows, compaction must be a real storage rewrite.
+- Query-time aggregation alone does not reduce stored row count.
 
-## Rollout Plan
-1. Define the policy API shape and persisted schema.
-2. Add the rollup table and compaction model.
-3. Update shared data-point write paths to consult policy.
-4. Update read paths to choose raw vs rollup vs summary data.
-5. Add Garmin-focused tests for raw retention, bucket correctness, and query fallback behavior.
-6. Extend the same policy behavior to Suunto and SDK push flows.
-7. Document recommended presets for common product needs.
+### What compaction means
+- Example:
+  - 120 raw heart-rate points at `15s` cadence over `30m`
+  - compact into 1 rollup row containing `avg`, `min`, `max`, `last`, `count`
+  - delete the 120 raw rows once rollup is durable
 
-## Risks and Tradeoffs
-- More storage tiers make reads and maintenance logic more complex.
-- Rollups reduce fidelity, so defaults must be conservative and opt-in.
-- Per-user configurability would complicate ingestion and backfill behavior; deployment-level policy is a cleaner first version.
-- Aggregation design matters: a weak rollup shape will force another migration later.
+### What can be done without cron
+- Incoming historical points can be written directly to the correct tier.
+- Raw-to-first-rollup compaction can be performed opportunistically during writes for the same source and series.
+- This is enough for a basic first phase if policy only supports:
+  - current full retention
+  - one raw tier
+  - one older rollup tier
+
+### What requires scheduled maintenance
+- Hard total retention deletion
+- Multi-tier rollup transitions such as:
+  - `30m` rollups until `7d`
+  - then `1h` rollups forever
+- Guaranteed cleanup when a user stops syncing new data
+- Those cases require a background maintenance path because old data must still age out or move tiers even when no new writes arrive
+
+## Cron / Background Job Tradeoffs
+
+### Does scheduled maintenance create strain?
+- Yes, it creates real read/write/delete activity on the host deployment.
+- But it can be kept bounded if designed correctly.
+- The wrong design is:
+  - one cron per user
+  - full-table scans
+  - unbounded deletes in one mutation
+- The right design is:
+  - one component-level cron
+  - queue only sources with eligible work
+  - bounded batch sizes
+  - resumable cursors or watermarks
+  - staggered processing across runs
+
+### Rough daily volume example
+- Assume `50` users with Garmin heart rate at `15s` cadence.
+- Each user produces about `5760` heart-rate rows per day.
+- If policy is:
+  - raw `24h`
+  - `30m` rollup through `7d`
+  - delete older than `7d`
+- Then after warmup, each day the maintenance path roughly does:
+  - per user:
+    - compact `5760` raw rows into `48` rollup buckets
+    - delete `48` expired rollup rows at the `7d` edge
+  - across `50` users:
+    - `288000` raw-row deletions per day
+    - `2400` rollup upserts per day
+    - `2400` rollup deletions per day
+- That is meaningful background work. It is not absurdly high, but it is not free either.
+
+### Cost guidance
+- Reads, writes, deletes, and function execution all contribute to operational cost.
+- Hard retention deletion and multi-tier migration should therefore be treated as an explicit feature, not invisible background behavior forced on every host app.
+
+### Recommendation for scheduling
+- Make scheduled maintenance opt-in for the first release that includes total retention deletion or older-tier migration.
+- Keep deployment-wide defaults simple.
+- Only enable background maintenance when the configured policies actually require it.
+
+## Rollout Strategy
+
+### Phase 1
+- Replace the public config with tier-based policy definitions.
+- Accept human-friendly durations and normalize internally.
+- Support deployment-wide policy only.
+- Support one raw tier plus one rollup tier.
+- Keep compaction opportunistic on writes.
+- Preserve default fallback behavior as full raw storage.
+
+### Phase 2
+- Add optional scheduled maintenance for:
+  - total retention deletion
+  - guaranteed cleanup when no new writes arrive
+- Keep this feature opt-in.
+
+### Phase 3
+- Add multi-rollup-tier support.
+- Example:
+  - raw `24h`
+  - `30m` rollups until `7d`
+  - `1h` rollups forever
+- This phase almost certainly depends on scheduled maintenance.
+
+### Phase 4
+- Add policy presets and user assignment.
+- Support:
+  - deployment default preset
+  - per-user preset override
+- Consider direct user custom policy only if preset assignment is not sufficient.
+
+## Open Design Questions
+- Whether to adopt the `ms` package directly or a small equivalent parser to reduce dependency surface.
+- Whether scheduled maintenance should be disabled by default unless a policy requires:
+  - deletion after retention
+  - deeper rollup-tier migration
+- Whether phase 1 should deliberately reject multi-tier definitions until phase 3 lands.
+- Whether per-user policy should be limited to preset assignment for the first version that supports user-level variation.
+- Whether host apps should also get an explicit `purgeOnDisconnect` option or API helper, separate from normal retention.
 
 ## Recommendation
-- Implement a generic, persisted storage policy with a backward-compatible default of `full`.
-- Ship Garmin `heart_rate` as the first practical use case for retention plus bucketing.
-- Keep full syncing available at all times; let consumers opt into stricter storage behavior when they need operational control.
+- Move the policy model from implicit `mode` values to explicit storage tiers by age.
+- Ship the first rewrite with:
+  - human-friendly duration input
+  - deployment-wide policy
+  - one raw tier and one rollup tier
+  - opportunistic write-time compaction
+- Delay total retention deletion and second older rollup tiers until scheduled maintenance is added as an explicit, opt-in capability.
+- When user-level policy arrives, prefer presets plus assignment over arbitrary per-user policy blobs.

@@ -52,6 +52,29 @@ export const deleteAllUserData = mutation({
           .withIndex("by_source_type_time", (idx) => idx.eq("dataSourceId", source._id))
           .take(500);
       }
+
+      let rollups = await ctx.db
+        .query("timeSeriesRollups")
+        .withIndex("by_source_type_bucket", (idx) => idx.eq("dataSourceId", source._id))
+        .take(500);
+      while (rollups.length > 0) {
+        for (const rollup of rollups) {
+          await ctx.db.delete(rollup._id);
+        }
+        rollups = await ctx.db
+          .query("timeSeriesRollups")
+          .withIndex("by_source_type_bucket", (idx) => idx.eq("dataSourceId", source._id))
+          .take(500);
+      }
+
+      const seriesStates = await ctx.db
+        .query("timeSeriesSeriesState")
+        .withIndex("by_source_series", (idx) => idx.eq("dataSourceId", source._id))
+        .collect();
+      for (const state of seriesStates) {
+        await ctx.db.delete(state._id);
+      }
+
       await ctx.db.delete(source._id);
     }
 
@@ -73,7 +96,25 @@ export const deleteAllUserData = mutation({
       await ctx.db.delete(summary._id);
     }
 
-    // 5. Delete sync jobs
+    // 5. Delete menstrual cycles
+    const cycles = await ctx.db
+      .query("menstrualCycles")
+      .withIndex("by_user_date", (idx) => idx.eq("userId", userId))
+      .collect();
+    for (const cycle of cycles) {
+      await ctx.db.delete(cycle._id);
+    }
+
+    // 6. Delete user-level time-series policy assignments
+    const policyAssignments = await ctx.db
+      .query("timeSeriesPolicyAssignments")
+      .withIndex("by_user", (idx) => idx.eq("userId", userId))
+      .collect();
+    for (const assignment of policyAssignments) {
+      await ctx.db.delete(assignment._id);
+    }
+
+    // 7. Delete sync jobs
     const jobs = await ctx.db
       .query("syncJobs")
       .withIndex("by_user", (idx) => idx.eq("userId", userId))

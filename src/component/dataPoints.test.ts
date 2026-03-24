@@ -1,5 +1,6 @@
 import { convexTest } from "convex-test";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import { modules } from "./test.setup";
 
@@ -277,6 +278,550 @@ describe("dataPoints", () => {
       });
 
       expect(stored).toHaveLength(10);
+    });
+  });
+
+  describe("storage policies", () => {
+    it("persists tier policies, presets, and resolves precedence", async () => {
+      const t = convexTest(schema, modules);
+
+      const replaceResult = await t.mutation(api.dataPoints.replaceTimeSeriesPolicyConfiguration, {
+        defaultRules: [
+          {
+            tiers: [{ kind: "raw", fromAge: "0m", toAge: null }],
+          },
+          {
+            provider: "garmin",
+            tiers: [
+              { kind: "raw", fromAge: "0m", toAge: "7d" },
+              {
+                kind: "rollup",
+                fromAge: "7d",
+                toAge: null,
+                bucket: "5m",
+                aggregations: ["avg", "last"],
+              },
+            ],
+          },
+          {
+            seriesType: "heart_rate",
+            tiers: [
+              { kind: "rollup", fromAge: "0m", toAge: null, bucket: "1m", aggregations: ["last"] },
+            ],
+          },
+          {
+            provider: "garmin",
+            seriesType: "heart_rate",
+            tiers: [
+              { kind: "raw", fromAge: "0m", toAge: "24h" },
+              {
+                kind: "rollup",
+                fromAge: "24h",
+                toAge: "7d",
+                bucket: "30m",
+                aggregations: ["avg", "min", "max", "last", "count"],
+              },
+              {
+                kind: "rollup",
+                fromAge: "7d",
+                toAge: null,
+                bucket: "3h",
+                aggregations: ["avg", "last", "count"],
+              },
+            ],
+          },
+        ],
+        presets: [
+          {
+            key: "pro",
+            rules: [
+              {
+                provider: "garmin",
+                seriesType: "heart_rate",
+                tiers: [
+                  { kind: "raw", fromAge: "0m", toAge: "12h" },
+                  { kind: "rollup", fromAge: "12h", toAge: "14d", bucket: "15m" },
+                  { kind: "rollup", fromAge: "14d", toAge: null, bucket: "6h" },
+                ],
+              },
+            ],
+          },
+        ],
+        maintenance: {
+          enabled: true,
+          interval: "2h",
+        },
+      });
+
+      expect(replaceResult).toEqual({
+        defaultRulesStored: 4,
+        presetsStored: 1,
+      });
+
+      const configuration = await t.query(api.dataPoints.getTimeSeriesPolicyConfiguration, {});
+      expect(configuration.maintenance).toEqual({
+        enabled: true,
+        intervalMs: 2 * 60 * 60 * 1000,
+      });
+      expect(configuration.defaultRules).toHaveLength(4);
+      expect(configuration.defaultRules.map((policy: { scope: string }) => policy.scope)).toEqual([
+        "global",
+        "provider",
+        "series",
+        "provider_series",
+      ]);
+      expect(configuration.presets).toHaveLength(1);
+      expect(configuration.presets[0].key).toBe("pro");
+
+      const exact = await t.query(api.dataPoints.getEffectiveTimeSeriesPolicy, {
+        userId: "user-1",
+        provider: "garmin",
+        seriesType: "heart_rate",
+      });
+      expect(exact).toMatchObject({
+        matchedScope: "provider_series",
+        sourceKind: "default",
+        sourceKey: "__default__",
+      });
+      expect(exact.tiers).toHaveLength(3);
+      expect(exact.tiers[0]).toMatchObject({
+        kind: "raw",
+        fromAgeMs: 0,
+        toAgeMs: 24 * 60 * 60 * 1000,
+      });
+      expect(exact.tiers[1]).toMatchObject({
+        kind: "rollup",
+        bucketMs: 30 * 60 * 1000,
+      });
+
+      const series = await t.query(api.dataPoints.getEffectiveTimeSeriesPolicy, {
+        userId: "user-1",
+        provider: "strava",
+        seriesType: "heart_rate",
+      });
+      expect(series).toMatchObject({
+        matchedScope: "series",
+        sourceKind: "default",
+      });
+      expect(series.tiers).toEqual([
+        {
+          kind: "rollup",
+          fromAgeMs: 0,
+          toAgeMs: null,
+          bucketMs: 60 * 1000,
+          aggregations: ["last"],
+        },
+      ]);
+
+      const provider = await t.query(api.dataPoints.getEffectiveTimeSeriesPolicy, {
+        userId: "user-1",
+        provider: "garmin",
+        seriesType: "steps",
+      });
+      expect(provider).toMatchObject({
+        matchedScope: "provider",
+        sourceKind: "default",
+      });
+      expect(provider.tiers[1]).toMatchObject({
+        kind: "rollup",
+        bucketMs: 5 * 60 * 1000,
+      });
+
+      const fallback = await t.query(api.dataPoints.getEffectiveTimeSeriesPolicy, {
+        userId: "user-1",
+        provider: "polar",
+        seriesType: "weight",
+      });
+      expect(fallback).toMatchObject({
+        matchedScope: "global",
+        sourceKind: "default",
+      });
+      expect(fallback.tiers).toEqual([
+        {
+          kind: "raw",
+          fromAgeMs: 0,
+          toAgeMs: null,
+        },
+      ]);
+
+      await t.mutation(api.dataPoints.setUserTimeSeriesPolicyPreset, {
+        userId: "user-1",
+        presetKey: "pro",
+      });
+
+      const assignment = await t.query(api.dataPoints.getUserTimeSeriesPolicyPreset, {
+        userId: "user-1",
+      });
+      expect(assignment).toMatchObject({
+        userId: "user-1",
+        presetKey: "pro",
+      });
+
+      const presetEffective = await t.query(api.dataPoints.getEffectiveTimeSeriesPolicy, {
+        userId: "user-1",
+        provider: "garmin",
+        seriesType: "heart_rate",
+      });
+      expect(presetEffective).toMatchObject({
+        sourceKind: "preset",
+        sourceKey: "pro",
+        matchedScope: "provider_series",
+      });
+      expect(presetEffective.tiers[1]).toMatchObject({
+        kind: "rollup",
+        bucketMs: 15 * 60 * 1000,
+      });
+    });
+
+    it("stores older points in rollups and newer points as raw with explicit tiers", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-03-22T12:00:00Z"));
+
+      try {
+        const t = convexTest(schema, modules);
+        const dsId = await seedDataSource(t, "user-1", "garmin");
+
+        await t.mutation(api.dataPoints.replaceTimeSeriesPolicyConfiguration, {
+          defaultRules: [
+            {
+              provider: "garmin",
+              seriesType: "heart_rate",
+              tiers: [
+                { kind: "raw", fromAge: "0m", toAge: "24h" },
+                { kind: "rollup", fromAge: "24h", toAge: "7d", bucket: "30m" },
+              ],
+            },
+          ],
+        });
+
+        await t.mutation(internal.dataPoints.storeBatch, {
+          dataSourceId: dsId,
+          seriesType: "heart_rate",
+          points: [
+            {
+              recordedAt: Date.parse("2026-03-20T10:00:10Z"),
+              value: 100,
+            },
+            {
+              recordedAt: Date.parse("2026-03-20T10:10:00Z"),
+              value: 120,
+            },
+            {
+              recordedAt: Date.parse("2026-03-20T10:20:00Z"),
+              value: 110,
+            },
+            {
+              recordedAt: Date.parse("2026-03-22T11:30:00Z"),
+              value: 70,
+            },
+            {
+              recordedAt: Date.parse("2026-03-22T11:45:00Z"),
+              value: 72,
+            },
+          ],
+        });
+
+        const rawPoints = await t.run(async (ctx) => {
+          return await ctx.db
+            .query("dataPoints")
+            .withIndex("by_source_type_time", (idx) =>
+              idx.eq("dataSourceId", dsId).eq("seriesType", "heart_rate"),
+            )
+            .collect();
+        });
+        expect(rawPoints).toHaveLength(2);
+        expect(rawPoints.map((point) => point.value)).toEqual([70, 72]);
+
+        const rollups = await t.run(async (ctx) => {
+          return await ctx.db
+            .query("timeSeriesRollups")
+            .withIndex("by_source_type_bucket", (idx) =>
+              idx.eq("dataSourceId", dsId).eq("seriesType", "heart_rate"),
+            )
+            .collect();
+        });
+        expect(rollups).toHaveLength(1);
+        expect(rollups[0]).toMatchObject({
+          count: 3,
+          avg: 110,
+          min: 100,
+          max: 120,
+          last: 110,
+          bucketMs: 30 * 60 * 1000,
+        });
+
+        const points = await t.query(api.dataPoints.getTimeSeries, {
+          dataSourceId: dsId,
+          seriesType: "heart_rate",
+          startDate: Date.parse("2026-03-20T10:00:00Z"),
+          endDate: Date.parse("2026-03-22T12:00:00Z"),
+        });
+
+        expect(points.points).toHaveLength(3);
+        expect(points.points[0]).toMatchObject({
+          timestamp: Date.parse("2026-03-20T10:00:00Z"),
+          value: 110,
+          resolution: "rollup",
+          bucketMinutes: 30,
+          avg: 110,
+          min: 100,
+          max: 120,
+          last: 110,
+          count: 3,
+        });
+        expect(points.points[1]).toMatchObject({
+          timestamp: Date.parse("2026-03-22T11:30:00Z"),
+          value: 70,
+          resolution: "raw",
+        });
+        expect(points.points[2]).toMatchObject({
+          timestamp: Date.parse("2026-03-22T11:45:00Z"),
+          value: 72,
+          resolution: "raw",
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("stores rollups only when a policy starts directly with a rollup tier", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-03-22T12:00:00Z"));
+
+      try {
+        const t = convexTest(schema, modules);
+        const dsId = await seedDataSource(t, "user-summary", "garmin");
+
+        await t.mutation(api.dataPoints.replaceTimeSeriesPolicyConfiguration, {
+          defaultRules: [
+            {
+              provider: "garmin",
+              seriesType: "heart_rate",
+              tiers: [
+                {
+                  kind: "rollup",
+                  fromAge: "0m",
+                  toAge: null,
+                  bucket: "5m",
+                  aggregations: ["last"],
+                },
+              ],
+            },
+          ],
+        });
+
+        await t.mutation(internal.dataPoints.storeBatch, {
+          dataSourceId: dsId,
+          seriesType: "heart_rate",
+          points: [
+            {
+              recordedAt: Date.parse("2026-03-20T10:00:00Z"),
+              value: 88,
+            },
+            {
+              recordedAt: Date.parse("2026-03-20T10:02:00Z"),
+              value: 92,
+            },
+          ],
+        });
+
+        const rawCount = await t.run(async (ctx) => {
+          return (
+            await ctx.db
+              .query("dataPoints")
+              .withIndex("by_source_type_time", (idx) =>
+                idx.eq("dataSourceId", dsId).eq("seriesType", "heart_rate"),
+              )
+              .collect()
+          ).length;
+        });
+        expect(rawCount).toBe(0);
+
+        const userPoints = await t.query(api.dataPoints.getTimeSeriesForUser, {
+          userId: "user-summary",
+          seriesType: "heart_rate",
+          startDate: Date.parse("2026-03-20T00:00:00Z"),
+          endDate: Date.parse("2026-03-20T23:59:59Z"),
+        });
+        expect(userPoints).toHaveLength(1);
+        expect(userPoints[0]).toMatchObject({
+          timestamp: Date.parse("2026-03-20T10:00:00Z"),
+          value: 92,
+          resolution: "rollup",
+          bucketMinutes: 5,
+          last: 92,
+          count: 2,
+        });
+
+        const latest = await t.query(api.dataPoints.getLatestDataPoint, {
+          userId: "user-summary",
+          seriesType: "heart_rate",
+        });
+        expect(latest).toMatchObject({
+          timestamp: Date.parse("2026-03-20T10:02:00Z"),
+          value: 92,
+          provider: "garmin",
+        });
+
+        const available = await t.query(api.dataPoints.getAvailableSeriesTypes, {
+          userId: "user-summary",
+        });
+        expect(available).toContain("heart_rate");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("deletes data older than total retention during maintenance", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-03-22T12:00:00Z"));
+
+      try {
+        const t = convexTest(schema, modules);
+        const dsId = await seedDataSource(t, "user-retention", "garmin");
+
+        await t.mutation(internal.dataPoints.storeBatch, {
+          dataSourceId: dsId,
+          seriesType: "heart_rate",
+          points: [
+            {
+              recordedAt: Date.parse("2026-03-14T10:00:00Z"),
+              value: 101,
+            },
+            {
+              recordedAt: Date.parse("2026-03-20T10:00:00Z"),
+              value: 105,
+            },
+          ],
+        });
+
+        await t.mutation(api.dataPoints.replaceTimeSeriesPolicyConfiguration, {
+          defaultRules: [
+            {
+              provider: "garmin",
+              seriesType: "heart_rate",
+              tiers: [
+                { kind: "raw", fromAge: "0m", toAge: "24h" },
+                { kind: "rollup", fromAge: "24h", toAge: "7d", bucket: "30m" },
+              ],
+            },
+          ],
+          maintenance: {
+            enabled: true,
+            interval: "1h",
+          },
+        });
+
+        await t.mutation(internal.dataPoints.runTimeSeriesMaintenance, {});
+
+        const rawAfter = await t.run(async (ctx) => {
+          return await ctx.db
+            .query("dataPoints")
+            .withIndex("by_source_type_time", (idx) =>
+              idx.eq("dataSourceId", dsId).eq("seriesType", "heart_rate"),
+            )
+            .collect();
+        });
+        expect(rawAfter).toHaveLength(0);
+
+        const rollups = await t.run(async (ctx) => {
+          return await ctx.db
+            .query("timeSeriesRollups")
+            .withIndex("by_source_type_bucket", (idx) =>
+              idx.eq("dataSourceId", dsId).eq("seriesType", "heart_rate"),
+            )
+            .collect();
+        });
+        expect(rollups).toHaveLength(1);
+        expect(rollups[0]).toMatchObject({
+          bucketMs: 30 * 60 * 1000,
+          count: 1,
+          avg: 105,
+        });
+        expect(rollups[0].bucketStart).toBe(Date.parse("2026-03-20T10:00:00Z"));
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("migrates older rollups into a coarser tier during maintenance", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-03-22T12:00:00Z"));
+
+      try {
+        const t = convexTest(schema, modules);
+        const dsId = await seedDataSource(t, "user-migrate", "garmin");
+
+        await t.mutation(api.dataPoints.replaceTimeSeriesPolicyConfiguration, {
+          defaultRules: [
+            {
+              provider: "garmin",
+              seriesType: "heart_rate",
+              tiers: [
+                { kind: "raw", fromAge: "0m", toAge: "24h" },
+                { kind: "rollup", fromAge: "24h", toAge: null, bucket: "30m" },
+              ],
+            },
+          ],
+        });
+
+        await t.mutation(internal.dataPoints.storeBatch, {
+          dataSourceId: dsId,
+          seriesType: "heart_rate",
+          points: [
+            {
+              recordedAt: Date.parse("2026-03-14T10:00:00Z"),
+              value: 90,
+            },
+            {
+              recordedAt: Date.parse("2026-03-14T10:30:00Z"),
+              value: 120,
+            },
+            {
+              recordedAt: Date.parse("2026-03-14T11:00:00Z"),
+              value: 105,
+            },
+          ],
+        });
+
+        await t.mutation(api.dataPoints.replaceTimeSeriesPolicyConfiguration, {
+          defaultRules: [
+            {
+              provider: "garmin",
+              seriesType: "heart_rate",
+              tiers: [
+                { kind: "raw", fromAge: "0m", toAge: "24h" },
+                { kind: "rollup", fromAge: "24h", toAge: "7d", bucket: "30m" },
+                { kind: "rollup", fromAge: "7d", toAge: null, bucket: "3h" },
+              ],
+            },
+          ],
+        });
+
+        await t.mutation(internal.dataPoints.runTimeSeriesMaintenance, {});
+
+        const rollups = await t.run(async (ctx) => {
+          return await ctx.db
+            .query("timeSeriesRollups")
+            .withIndex("by_source_type_bucket", (idx) =>
+              idx.eq("dataSourceId", dsId).eq("seriesType", "heart_rate"),
+            )
+            .collect();
+        });
+
+        expect(rollups).toHaveLength(1);
+        expect(rollups[0]).toMatchObject({
+          bucketMs: 3 * 60 * 60 * 1000,
+          bucketStart: Date.parse("2026-03-14T09:00:00Z"),
+          count: 3,
+          avg: 105,
+          min: 90,
+          max: 120,
+          last: 105,
+        });
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 });

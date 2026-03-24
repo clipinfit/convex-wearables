@@ -53,6 +53,17 @@ export const backfillStatus = v.union(
   v.literal("canceled"),
 );
 
+/**
+ * Supported rollup aggregations.
+ */
+export const timeSeriesAggregation = v.union(
+  v.literal("avg"),
+  v.literal("min"),
+  v.literal("max"),
+  v.literal("last"),
+  v.literal("count"),
+);
+
 // ---------------------------------------------------------------------------
 // Schema
 // ---------------------------------------------------------------------------
@@ -107,6 +118,28 @@ export default defineSchema({
   })
     .index("by_source_type_time", ["dataSourceId", "seriesType", "recordedAt"])
     .index("by_type_time", ["seriesType", "recordedAt"]),
+
+  // -------------------------------------------------------------------------
+  // Time-Series Rollups — bucketed storage for dense historical series
+  // -------------------------------------------------------------------------
+  timeSeriesRollups: defineTable({
+    dataSourceId: v.id("dataSources"),
+    seriesType: v.string(),
+    bucketMs: v.number(),
+    bucketStart: v.number(),
+    bucketEnd: v.number(),
+    avg: v.number(),
+    min: v.number(),
+    max: v.number(),
+    last: v.number(),
+    lastRecordedAt: v.number(),
+    count: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_source_type_bucket", ["dataSourceId", "seriesType", "bucketStart"])
+    .index("by_source_type_bucket_size", ["dataSourceId", "seriesType", "bucketMs", "bucketStart"])
+    .index("by_source_bucket", ["dataSourceId", "bucketStart"])
+    .index("by_type_bucket", ["seriesType", "bucketStart"]),
 
   // -------------------------------------------------------------------------
   // Events — workouts and sleep sessions
@@ -267,6 +300,79 @@ export default defineSchema({
     subscriptionKey: v.optional(v.string()),
     updatedAt: v.optional(v.number()),
   }).index("by_provider", ["provider"]),
+
+  // -------------------------------------------------------------------------
+  // Time-Series Policy Rules — default and preset-based storage rules
+  // -------------------------------------------------------------------------
+  timeSeriesPolicyRules: defineTable({
+    policySetKind: v.union(v.literal("default"), v.literal("preset")),
+    policySetKey: v.string(), // "__default__" or host-defined preset key
+    scopeKey: v.string(),
+    provider: v.optional(providerName),
+    seriesType: v.optional(v.string()),
+    tiers: v.array(
+      v.union(
+        v.object({
+          kind: v.literal("raw"),
+          fromAgeMs: v.number(),
+          toAgeMs: v.union(v.number(), v.null()),
+        }),
+        v.object({
+          kind: v.literal("rollup"),
+          fromAgeMs: v.number(),
+          toAgeMs: v.union(v.number(), v.null()),
+          bucketMs: v.number(),
+          aggregations: v.array(timeSeriesAggregation),
+        }),
+      ),
+    ),
+    updatedAt: v.number(),
+  })
+    .index("by_set", ["policySetKind", "policySetKey"])
+    .index("by_set_scope", ["policySetKind", "policySetKey", "provider", "seriesType"]),
+
+  // -------------------------------------------------------------------------
+  // Time-Series Policy Assignments — per-user preset selection
+  // -------------------------------------------------------------------------
+  timeSeriesPolicyAssignments: defineTable({
+    userId: v.string(),
+    presetKey: v.string(),
+    updatedAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_preset", ["presetKey"]),
+
+  // -------------------------------------------------------------------------
+  // Time-Series Policy Settings — singleton settings for maintenance
+  // -------------------------------------------------------------------------
+  timeSeriesPolicySettings: defineTable({
+    key: v.string(),
+    maintenanceEnabled: v.boolean(),
+    maintenanceIntervalMs: v.number(),
+    scheduledAt: v.optional(v.number()),
+    lastRunAt: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+    updatedAt: v.number(),
+  }).index("by_key", ["key"]),
+
+  // -------------------------------------------------------------------------
+  // Time-Series Series State — per source/series maintenance cursor
+  // -------------------------------------------------------------------------
+  timeSeriesSeriesState: defineTable({
+    dataSourceId: v.id("dataSources"),
+    connectionId: v.optional(v.id("connections")),
+    userId: v.string(),
+    provider: providerName,
+    seriesType: v.string(),
+    latestRecordedAt: v.number(),
+    lastIngestedAt: v.number(),
+    nextMaintenanceAt: v.number(),
+    lastMaintenanceAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_source_series", ["dataSourceId", "seriesType"])
+    .index("by_next_maintenance", ["nextMaintenanceAt"])
+    .index("by_user", ["userId"]),
 
   // -------------------------------------------------------------------------
   // Provider Priorities — sync order when multiple providers have same data

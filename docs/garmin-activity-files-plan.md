@@ -205,6 +205,24 @@ This is the right place to be strict about acknowledgement semantics and loose a
   - `sport_segments`
   - `raw_summary_extensions`
 
+## Interaction with Existing Garmin Feeds
+
+### Treat Activity Files as enrichment, not replacement
+- `activities` and `activityDetails` should remain the primary path for creating and updating the core workout `event` row.
+- `activityFiles` should add supplemental detail to that same Garmin activity, not act as a second source of summary event creation.
+- Activity Files must not create a second workout event for the same `activityId`.
+
+### Keep source-of-truth boundaries explicit
+- In v1, the summary feeds should remain authoritative for the cross-provider `event` shape.
+- Activity Files should be used to attach high-value detail that the summary feeds do not provide, especially strength workout structure.
+- Activity Files should not overwrite core summary metrics by default.
+- If we later decide that some file-derived fields are more trustworthy, those should be introduced as explicit reconciliation rules rather than implicit patch behavior.
+
+### Why this matters
+- It keeps the design predictable when Garmin feeds arrive out of order.
+- It reduces the chance of race-condition bugs between summary ingestion and file processing.
+- It avoids accidental drift in the core event model while still letting Garmin-specific detail grow in a separate layer.
+
 ## Parsing Scope
 
 ### FIT-first is the right first step

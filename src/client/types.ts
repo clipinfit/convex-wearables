@@ -26,6 +26,10 @@ export type SyncJobStatus = "queued" | "running" | "completed" | "failed" | "can
 
 export type BackfillJobStatus = "queued" | "running" | "completed" | "failed" | "canceled";
 
+export type DurationInput = string | number;
+
+export type TimeSeriesRollupAggregation = "avg" | "min" | "max" | "last" | "count";
+
 // ---------------------------------------------------------------------------
 // Provider configuration (passed by app)
 // ---------------------------------------------------------------------------
@@ -287,12 +291,107 @@ export type HealthEvent = WorkoutEvent | SleepEvent;
 export interface DataPoint {
   timestamp: number;
   value: number;
+  resolution?: "raw" | "rollup";
+  bucketMinutes?: number;
+  avg?: number;
+  min?: number;
+  max?: number;
+  last?: number;
+  count?: number;
 }
 
 export interface TimeSeriesPage {
   points: DataPoint[];
   nextCursor: string | null;
   hasMore: boolean;
+}
+
+export interface TimeSeriesRawTierInput {
+  kind: "raw";
+  fromAge: DurationInput;
+  toAge: DurationInput | null;
+}
+
+export interface TimeSeriesRollupTierInput {
+  kind: "rollup";
+  fromAge: DurationInput;
+  toAge: DurationInput | null;
+  bucket: DurationInput;
+  aggregations?: TimeSeriesRollupAggregation[];
+}
+
+export type TimeSeriesTierInput = TimeSeriesRawTierInput | TimeSeriesRollupTierInput;
+
+export interface TimeSeriesPolicyRuleInput {
+  provider?: ProviderName;
+  seriesType?: string;
+  tiers: TimeSeriesTierInput[];
+}
+
+export interface TimeSeriesPolicyPresetInput {
+  key: string;
+  rules: TimeSeriesPolicyRuleInput[];
+}
+
+export interface TimeSeriesMaintenanceInput {
+  enabled?: boolean;
+  interval?: DurationInput;
+}
+
+export interface TimeSeriesRawTier {
+  kind: "raw";
+  fromAgeMs: number;
+  toAgeMs: number | null;
+}
+
+export interface TimeSeriesRollupTier {
+  kind: "rollup";
+  fromAgeMs: number;
+  toAgeMs: number | null;
+  bucketMs: number;
+  aggregations: TimeSeriesRollupAggregation[];
+}
+
+export type TimeSeriesTier = TimeSeriesRawTier | TimeSeriesRollupTier;
+
+export interface TimeSeriesPolicyRule {
+  _id: string;
+  policySetKind: "default" | "preset";
+  policySetKey: string;
+  updatedAt: number;
+  scope: "global" | "provider" | "series" | "provider_series";
+  provider?: ProviderName;
+  seriesType?: string;
+  tiers: TimeSeriesTier[];
+}
+
+export interface TimeSeriesPolicyPreset {
+  key: string;
+  rules: TimeSeriesPolicyRule[];
+}
+
+export interface TimeSeriesPolicyConfiguration {
+  maintenance: {
+    enabled: boolean;
+    intervalMs: number;
+  };
+  defaultRules: TimeSeriesPolicyRule[];
+  presets: TimeSeriesPolicyPreset[];
+}
+
+export interface UserTimeSeriesPolicyPreset {
+  userId: string;
+  presetKey: string;
+  updatedAt: number;
+}
+
+export interface EffectiveTimeSeriesPolicy {
+  provider: ProviderName;
+  seriesType: string;
+  sourceKind: "preset" | "default" | "builtin";
+  sourceKey: string | null;
+  matchedScope: "default" | "global" | "provider" | "series" | "provider_series";
+  tiers: TimeSeriesTier[];
 }
 
 // ---------------------------------------------------------------------------

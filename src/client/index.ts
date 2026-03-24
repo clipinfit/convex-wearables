@@ -21,6 +21,7 @@ import type {
   Connection,
   DailySummary,
   DataPoint,
+  EffectiveTimeSeriesPolicy,
   EventCategory,
   EventsPage,
   GarminRoutesConfig,
@@ -36,7 +37,12 @@ import type {
   SdkSyncPayload,
   SyncJob,
   SyncStatus,
+  TimeSeriesMaintenanceInput,
   TimeSeriesPage,
+  TimeSeriesPolicyConfiguration,
+  TimeSeriesPolicyPresetInput,
+  TimeSeriesPolicyRuleInput,
+  UserTimeSeriesPolicyPreset,
   WearablesConfig,
 } from "./types.js";
 
@@ -54,6 +60,7 @@ export type {
   Connection,
   DailySummary,
   DataPoint,
+  EffectiveTimeSeriesPolicy,
   EventCategory,
   EventsPage,
   GarminRoutesConfig,
@@ -69,7 +76,12 @@ export type {
   SdkSyncPayload,
   SyncJob,
   SyncStatus,
+  TimeSeriesMaintenanceInput,
   TimeSeriesPage,
+  TimeSeriesPolicyConfiguration,
+  TimeSeriesPolicyPresetInput,
+  TimeSeriesPolicyRuleInput,
+  UserTimeSeriesPolicyPreset,
   WearablesConfig,
 };
 
@@ -232,6 +244,69 @@ export class WearablesClient {
    */
   async getAvailableSeriesTypes(ctx: QueryRunner, args: { userId: string }): Promise<string[]> {
     return await ctx.runQuery(this.component.dataPoints.getAvailableSeriesTypes, args);
+  }
+
+  /**
+   * Get persisted time-series policy configuration.
+   */
+  async getTimeSeriesPolicyConfiguration(ctx: QueryRunner): Promise<TimeSeriesPolicyConfiguration> {
+    return (await ctx.runQuery(
+      this.component.dataPoints.getTimeSeriesPolicyConfiguration,
+      {},
+    )) as TimeSeriesPolicyConfiguration;
+  }
+
+  /**
+   * Get the preset assigned to a user, if any.
+   */
+  async getUserTimeSeriesPolicyPreset(
+    ctx: QueryRunner,
+    args: { userId: string },
+  ): Promise<UserTimeSeriesPolicyPreset | null> {
+    return (await ctx.runQuery(
+      this.component.dataPoints.getUserTimeSeriesPolicyPreset,
+      args,
+    )) as UserTimeSeriesPolicyPreset | null;
+  }
+
+  /**
+   * Resolve the effective time-series policy for a user/provider/series triple.
+   */
+  async getEffectiveTimeSeriesPolicy(
+    ctx: QueryRunner,
+    args: { userId: string; provider: ProviderName; seriesType: string },
+  ): Promise<EffectiveTimeSeriesPolicy> {
+    return (await ctx.runQuery(
+      this.component.dataPoints.getEffectiveTimeSeriesPolicy,
+      args,
+    )) as EffectiveTimeSeriesPolicy;
+  }
+
+  /**
+   * Replace the persisted time-series policy configuration.
+   */
+  async replaceTimeSeriesPolicyConfiguration(
+    ctx: MutationRunner,
+    args: {
+      defaultRules: TimeSeriesPolicyRuleInput[];
+      presets?: TimeSeriesPolicyPresetInput[];
+      maintenance?: TimeSeriesMaintenanceInput;
+    },
+  ): Promise<{ defaultRulesStored: number; presetsStored: number }> {
+    return await ctx.runMutation(
+      this.component.dataPoints.replaceTimeSeriesPolicyConfiguration,
+      args,
+    );
+  }
+
+  /**
+   * Assign or clear a user-specific policy preset.
+   */
+  async setUserTimeSeriesPolicyPreset(
+    ctx: MutationRunner,
+    args: { userId: string; presetKey: string | null },
+  ): Promise<null> {
+    return await ctx.runMutation(this.component.dataPoints.setUserTimeSeriesPolicyPreset, args);
   }
 
   // -----------------------------------------------------------------------
