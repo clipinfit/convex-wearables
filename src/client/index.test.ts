@@ -3,6 +3,7 @@ import {
   getSdkSyncPath,
   getSdkSyncUrl,
   oauthCallback,
+  registerRoutes,
   stravaWebhookEvent,
   stravaWebhookVerify,
   WearablesClient,
@@ -145,5 +146,86 @@ describe("package exports", () => {
         },
       },
     ]);
+  });
+});
+
+describe("registerRoutes", () => {
+  it("schedules Garmin push ingestion and acknowledges the webhook immediately", async () => {
+    const routes: Array<{
+      handler: { _handler: (ctx: unknown, request: Request) => Promise<Response> };
+      method: string;
+      path: string;
+    }> = [];
+    const http = {
+      route: (route: (typeof routes)[number]) => {
+        routes.push(route);
+      },
+    };
+    const processPushPayload = "wearables.garminWebhooks.processPushPayload";
+    const component = {
+      garminWebhooks: {
+        processPushPayload,
+      },
+    } as unknown as WearablesComponent;
+
+    registerRoutes(http as never, component, {
+      garmin: {
+        clientId: "garmin-client-id",
+        oauthCallbackPath: false,
+        webhookPath: "/webhooks/garmin/push",
+        healthPath: false,
+      },
+    });
+
+    const pushRoute = routes.find(
+      (route) => route.path === "/webhooks/garmin/push" && route.method === "POST",
+    );
+    expect(pushRoute).toBeDefined();
+
+    const scheduled: Array<{ delayMs: number; functionRef: unknown; args: unknown }> = [];
+    const ctx = {
+      scheduler: {
+        runAfter: async (delayMs: number, functionRef: unknown, args: unknown) => {
+          scheduled.push({ delayMs, functionRef, args });
+          return "scheduled-garmin-push";
+        },
+      },
+    };
+
+    const response = await pushRoute!.handler._handler(
+      ctx,
+      new Request("https://example.com/webhooks/garmin/push", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "garmin-client-id": "garmin-client-id",
+        },
+        body: JSON.stringify({
+          dailies: [
+            {
+              userId: "garmin-user-1",
+              summaryId: "daily-1",
+              startTimeInSeconds: 1_776_988_800,
+              durationInSeconds: 86_400,
+              steps: 12_345,
+            },
+          ],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("OK");
+    expect(scheduled).toHaveLength(1);
+    expect(scheduled[0]).toMatchObject({
+      delayMs: 0,
+      functionRef: processPushPayload,
+    });
+    expect(scheduled[0]?.args).toMatchObject({
+      garminClientId: "garmin-client-id",
+    });
+    expect(JSON.parse((scheduled[0]?.args as { payloadJson: string }).payloadJson)).toMatchObject({
+      dailies: [{ summaryId: "daily-1" }],
+    });
   });
 });

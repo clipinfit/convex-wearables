@@ -581,13 +581,18 @@ export function registerRoutes(
         });
 
         try {
-          await ctx.runAction(component.garminWebhooks.processPushPayload, {
-            payloadJson: JSON.stringify(payload),
-            garminClientId: garminClientId ?? "",
-          });
+          const scheduledFunctionId = await ctx.scheduler.runAfter(
+            0,
+            component.garminWebhooks.processPushPayload,
+            {
+              payloadJson: JSON.stringify(payload),
+              garminClientId: garminClientId ?? "",
+            },
+          );
 
-          console.info("Garmin webhook processed successfully", {
+          console.info("Garmin webhook ingestion scheduled", {
             componentFunction: GARMIN_PUSH_COMPONENT_FUNCTION,
+            scheduledFunctionId,
             payloadSummary,
           });
 
@@ -598,7 +603,7 @@ export function registerRoutes(
             serializedError.message.includes("Couldn't resolve") &&
             serializedError.message.includes(GARMIN_PUSH_COMPONENT_FUNCTION);
 
-          console.error("Garmin webhook processing failed", {
+          console.error("Garmin webhook scheduling failed", {
             componentFunction: GARMIN_PUSH_COMPONENT_FUNCTION,
             payloadSummary,
             error: serializedError,
