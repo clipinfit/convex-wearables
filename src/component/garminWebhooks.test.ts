@@ -16,6 +16,63 @@ afterEach(() => {
 });
 
 describe("garminWebhooks", () => {
+  it("ignores Garmin push data for inactive connections", async () => {
+    const t = createTest();
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("connections", {
+        userId: "user-1",
+        provider: "garmin",
+        providerUserId: "garmin-user-1",
+        status: "inactive",
+      });
+    });
+
+    await t.action(api.garminWebhooks.processPushPayload, {
+      garminClientId: "garmin-client",
+      payload: {
+        activities: [
+          {
+            userId: "garmin-user-1",
+            activityId: 101,
+            activityType: "RUNNING",
+            startTimeInSeconds: Math.floor(Date.parse("2026-03-16T08:00:00Z") / 1000),
+            durationInSeconds: 1800,
+          },
+        ],
+        dailies: [
+          {
+            userId: "garmin-user-1",
+            summaryId: "daily-1",
+            startTimeInSeconds: Math.floor(Date.parse("2026-03-16T00:00:00Z") / 1000),
+            durationInSeconds: 24 * 60 * 60,
+            calendarDate: "2026-03-16",
+            steps: 12345,
+          },
+        ],
+      },
+    });
+
+    const persisted = await t.run(async (ctx) => {
+      const events = await ctx.db.query("events").collect();
+      const dataPoints = await ctx.db.query("dataPoints").collect();
+      const summaries = await ctx.db.query("dailySummaries").collect();
+      const sources = await ctx.db.query("dataSources").collect();
+
+      return {
+        events,
+        dataPoints,
+        summaries,
+        sources,
+      };
+    });
+
+    expect(persisted.events).toHaveLength(0);
+    expect(persisted.dataPoints).toHaveLength(0);
+    expect(persisted.summaries).toHaveLength(0);
+    expect(persisted.sources).toHaveLength(0);
+  });
+
   it("ingests Garmin wellness feeds into events, data points, and summaries", async () => {
     const t = createTest();
 

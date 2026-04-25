@@ -635,7 +635,13 @@ async function resolveConnection(
     provider: "garmin",
     providerUserId: garminUserId,
   });
-  return (conn as Doc<"connections"> | null) ?? null;
+  const connection = (conn as Doc<"connections"> | null) ?? null;
+
+  if (connection?.status !== "active") {
+    return null;
+  }
+
+  return connection;
 }
 
 /**
