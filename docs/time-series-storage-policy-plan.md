@@ -1,6 +1,6 @@
 ---
 date: 2026-03-23
-status: NOT_IMPLEMENTED
+status: IMPLEMENTED
 semver: minor
 ---
 
