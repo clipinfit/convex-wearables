@@ -34,9 +34,10 @@ import {
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_QUERY_LIMIT = 2000;
 const MAINTENANCE_SETTINGS_KEY = "default";
-const MAINTENANCE_BATCH_SIZE = 20;
-const MAINTENANCE_POINT_BATCH_SIZE = 2000;
+const MAINTENANCE_BATCH_SIZE = 2;
+const MAINTENANCE_POINT_BATCH_SIZE = 1000;
 const MAINTENANCE_ROLLUP_BATCH_SIZE = 500;
+const PROMPT_MAINTENANCE_DELAY_MS = 60 * 1000;
 const LONG_IDLE_MAINTENANCE_MS = 30 * DAY_MS;
 
 type StoredPolicyRule = Doc<"timeSeriesPolicyRules">;
@@ -70,6 +71,11 @@ type AggregatedStats = {
   last: number;
   lastRecordedAt: number;
   count: number;
+};
+
+type MaintenanceResult = {
+  didWork: boolean;
+  hasBacklog: boolean;
 };
 
 type EffectivePolicy = {
@@ -206,10 +212,13 @@ export const getTimeSeriesForUser = query({
     startDate: v.number(),
     endDate: v.number(),
     limit: v.optional(v.number()),
+    order: v.optional(v.union(v.literal("asc"), v.literal("desc"))),
   },
   returns: v.array(timeSeriesPointValidator),
   handler: async (ctx, args) => {
     const limit = Math.min(args.limit ?? 500, MAX_QUERY_LIMIT);
+    const selectionOrder = args.order ?? "desc";
+    const responseOrder = args.order ?? "asc";
 
     const sources = await ctx.db
       .query("dataSources")
@@ -227,13 +236,19 @@ export const getTimeSeriesForUser = query({
           startDate: args.startDate,
           endDate: args.endDate,
           limit,
-          order: "asc",
+          order: selectionOrder,
         })),
       );
     }
 
-    points.sort((a, b) => a.timestamp - b.timestamp);
-    return points.slice(0, limit);
+    points.sort((a, b) =>
+      selectionOrder === "asc" ? a.timestamp - b.timestamp : b.timestamp - a.timestamp,
+    );
+
+    const limited = points.slice(0, limit);
+    return limited.sort((a, b) =>
+      responseOrder === "asc" ? a.timestamp - b.timestamp : b.timestamp - a.timestamp,
+    );
   },
 });
 
@@ -470,7 +485,9 @@ export const replaceTimeSeriesPolicyConfiguration = mutation({
 
     await upsertTimeSeriesPolicySettings(ctx, args.maintenance);
     await markAllSeriesStateDue(ctx, updatedAt);
-    await ensureTimeSeriesMaintenanceScheduled(ctx);
+    await ensureTimeSeriesMaintenanceScheduled(ctx, {
+      delayMs: PROMPT_MAINTENANCE_DELAY_MS,
+    });
 
     return {
       defaultRulesStored: normalizedDefaultRules.length,
@@ -496,7 +513,9 @@ export const setUserTimeSeriesPolicyPreset = mutation({
         await ctx.db.delete(existing._id);
       }
       await markSeriesStateDueForUser(ctx, args.userId, Date.now());
-      await ensureTimeSeriesMaintenanceScheduled(ctx);
+      await ensureTimeSeriesMaintenanceScheduled(ctx, {
+        delayMs: PROMPT_MAINTENANCE_DELAY_MS,
+      });
       return null;
     }
 
@@ -522,7 +541,9 @@ export const setUserTimeSeriesPolicyPreset = mutation({
     }
 
     await markSeriesStateDueForUser(ctx, args.userId, Date.now());
-    await ensureTimeSeriesMaintenanceScheduled(ctx);
+    await ensureTimeSeriesMaintenanceScheduled(ctx, {
+      delayMs: PROMPT_MAINTENANCE_DELAY_MS,
+    });
     return null;
   },
 });
@@ -602,16 +623,19 @@ export const runTimeSeriesMaintenance = internalMutation({
       .withIndex("by_next_maintenance", (idx) => idx.lte("nextMaintenanceAt", now))
       .take(MAINTENANCE_BATCH_SIZE);
 
+    let hasStateBacklog = false;
+
     for (const state of dueStates) {
       try {
-        await maintainSeriesState(ctx.db, state, now);
+        const result = await maintainSeriesState(ctx.db, state, now);
+        hasStateBacklog ||= result.hasBacklog;
       } catch (error) {
         lastError = error instanceof Error ? error.message : String(error);
       }
     }
 
     const refreshed = await ensureTimeSeriesPolicySettingsDoc(ctx.db);
-    const hasBacklog = dueStates.length === MAINTENANCE_BATCH_SIZE;
+    const hasBacklog = dueStates.length === MAINTENANCE_BATCH_SIZE || hasStateBacklog;
     const delayMs = hasBacklog
       ? Math.min(refreshed.maintenanceIntervalMs, 60 * 1000)
       : refreshed.maintenanceIntervalMs;
@@ -892,6 +916,7 @@ async function storePointsWithPolicy(
   const settings = await getTimeSeriesPolicySettings(ctx.db);
   const now = Date.now();
   const points = dedupeIncomingPoints(args.points);
+  const requiresMaintenance = policyRequiresMaintenance(effectivePolicy.tiers);
 
   const rawPoints: StoredPointInput[] = [];
   const rollupGroups = new Map<
@@ -934,24 +959,13 @@ async function storePointsWithPolicy(
     provider: dataSource.provider,
     seriesType: args.seriesType,
     latestRecordedAt: points.length > 0 ? points[points.length - 1].recordedAt : now,
-    nextMaintenanceAt: policyRequiresMaintenance(effectivePolicy.tiers)
-      ? now + settings.maintenanceIntervalMs
-      : now + LONG_IDLE_MAINTENANCE_MS,
+    nextMaintenanceAt: requiresMaintenance ? now : now + LONG_IDLE_MAINTENANCE_MS,
   });
 
-  if (policyRequiresMaintenance(effectivePolicy.tiers)) {
-    await maintainSeriesState(
-      ctx.db,
-      {
-        dataSourceId: dataSource._id,
-        connectionId: dataSource.connectionId,
-        userId: dataSource.userId,
-        provider: dataSource.provider,
-        seriesType: args.seriesType,
-      },
-      now,
-    );
-    await ensureTimeSeriesMaintenanceScheduled(ctx);
+  if (requiresMaintenance) {
+    await ensureTimeSeriesMaintenanceScheduled(ctx, {
+      delayMs: Math.min(settings.maintenanceIntervalMs, PROMPT_MAINTENANCE_DELAY_MS),
+    });
   }
 
   return {
@@ -975,23 +989,38 @@ async function upsertRawPoints(
   points: StoredPointInput[],
 ) {
   let lastId: Id<"dataPoints"> | null = null;
+  if (points.length === 0) {
+    return lastId;
+  }
+
+  const minRecordedAt = points[0].recordedAt;
+  const maxRecordedAt = points[points.length - 1].recordedAt;
+  const existingPoints = await db
+    .query("dataPoints")
+    .withIndex("by_source_type_time", (idx) =>
+      idx
+        .eq("dataSourceId", dataSourceId)
+        .eq("seriesType", seriesType)
+        .gte("recordedAt", minRecordedAt)
+        .lte("recordedAt", maxRecordedAt),
+    )
+    .collect();
+
+  const existingByRecordedAt = new Map<number, Doc<"dataPoints">>();
+  for (const existing of existingPoints) {
+    existingByRecordedAt.set(existing.recordedAt, existing);
+  }
 
   for (const point of points) {
-    const existing = await db
-      .query("dataPoints")
-      .withIndex("by_source_type_time", (idx) =>
-        idx
-          .eq("dataSourceId", dataSourceId)
-          .eq("seriesType", seriesType)
-          .eq("recordedAt", point.recordedAt),
-      )
-      .first();
+    const existing = existingByRecordedAt.get(point.recordedAt);
 
     if (existing) {
-      await db.patch(existing._id, {
-        value: point.value,
-        externalId: point.externalId,
-      });
+      if (existing.value !== point.value || existing.externalId !== point.externalId) {
+        await db.patch(existing._id, {
+          value: point.value,
+          externalId: point.externalId,
+        });
+      }
       lastId = existing._id;
     } else {
       lastId = await db.insert("dataPoints", {
@@ -1039,42 +1068,85 @@ async function upsertRollupStatsGroups(
   seriesType: string,
   groups: Iterable<{ bucketMs: number; bucketStart: number; stats: AggregatedStats }>,
 ) {
+  const groupedByBucketMs = new Map<
+    number,
+    Array<{ bucketMs: number; bucketStart: number; stats: AggregatedStats }>
+  >();
   for (const group of groups) {
-    const existing = await db
+    const bucketGroups = groupedByBucketMs.get(group.bucketMs) ?? [];
+    bucketGroups.push(group);
+    groupedByBucketMs.set(group.bucketMs, bucketGroups);
+  }
+
+  for (const [bucketMs, bucketGroups] of groupedByBucketMs) {
+    bucketGroups.sort((a, b) => a.bucketStart - b.bucketStart);
+    const minBucketStart = bucketGroups[0].bucketStart;
+    const maxBucketStart = bucketGroups[bucketGroups.length - 1].bucketStart;
+    const existingRollups = await db
       .query("timeSeriesRollups")
       .withIndex("by_source_type_bucket_size", (idx) =>
         idx
           .eq("dataSourceId", dataSourceId)
           .eq("seriesType", seriesType)
-          .eq("bucketMs", group.bucketMs)
-          .eq("bucketStart", group.bucketStart),
+          .eq("bucketMs", bucketMs)
+          .gte("bucketStart", minBucketStart)
+          .lte("bucketStart", maxBucketStart),
       )
-      .first();
+      .collect();
 
-    const combined = existing
-      ? combineAggregatedStats([rollupDocToStats(existing), group.stats])
-      : group.stats;
-    const patch = {
-      dataSourceId,
-      seriesType,
-      bucketMs: group.bucketMs,
-      bucketStart: group.bucketStart,
-      bucketEnd: getBucketEnd(group.bucketStart, group.bucketMs),
-      avg: combined.avg,
-      min: combined.min,
-      max: combined.max,
-      last: combined.last,
-      lastRecordedAt: combined.lastRecordedAt,
-      count: combined.count,
-      updatedAt: Date.now(),
-    };
+    const existingByBucketStart = new Map<number, StoredRollup>();
+    for (const existing of existingRollups as StoredRollup[]) {
+      existingByBucketStart.set(existing.bucketStart, existing);
+    }
 
-    if (existing) {
-      await db.patch(existing._id, patch);
-    } else {
-      await db.insert("timeSeriesRollups", patch);
+    for (const group of bucketGroups) {
+      const existing = existingByBucketStart.get(group.bucketStart);
+      const combined = existing
+        ? combineAggregatedStats([rollupDocToStats(existing), group.stats])
+        : group.stats;
+      const patch = {
+        dataSourceId,
+        seriesType,
+        bucketMs: group.bucketMs,
+        bucketStart: group.bucketStart,
+        bucketEnd: getBucketEnd(group.bucketStart, group.bucketMs),
+        avg: combined.avg,
+        min: combined.min,
+        max: combined.max,
+        last: combined.last,
+        lastRecordedAt: combined.lastRecordedAt,
+        count: combined.count,
+        updatedAt: Date.now(),
+      };
+
+      if (existing) {
+        if (!rollupMatches(existing, patch)) {
+          await db.patch(existing._id, patch);
+        }
+      } else {
+        await db.insert("timeSeriesRollups", patch);
+      }
     }
   }
+}
+
+function rollupMatches(
+  rollup: StoredRollup,
+  patch: Omit<StoredRollup, "_creationTime" | "_id" | "updatedAt"> & { updatedAt: number },
+) {
+  return (
+    rollup.dataSourceId === patch.dataSourceId &&
+    rollup.seriesType === patch.seriesType &&
+    rollup.bucketMs === patch.bucketMs &&
+    rollup.bucketStart === patch.bucketStart &&
+    rollup.bucketEnd === patch.bucketEnd &&
+    rollup.avg === patch.avg &&
+    rollup.min === patch.min &&
+    rollup.max === patch.max &&
+    rollup.last === patch.last &&
+    rollup.lastRecordedAt === patch.lastRecordedAt &&
+    rollup.count === patch.count
+  );
 }
 
 async function upsertSeriesState(
@@ -1122,19 +1194,26 @@ async function upsertSeriesState(
 // Maintenance
 // ---------------------------------------------------------------------------
 
-async function ensureTimeSeriesMaintenanceScheduled(ctx: TimeSeriesMutationContext) {
+async function ensureTimeSeriesMaintenanceScheduled(
+  ctx: TimeSeriesMutationContext,
+  options?: { delayMs?: number },
+) {
   const settings = await ensureTimeSeriesPolicySettingsDoc(ctx.db);
   if (!settings.maintenanceEnabled) {
     return;
   }
 
   const now = Date.now();
-  if (settings.scheduledAt !== undefined && settings.scheduledAt > now) {
+  const delayMs = options?.delayMs ?? settings.maintenanceIntervalMs;
+  const scheduledAt = now + delayMs;
+  if (
+    settings.scheduledAt !== undefined &&
+    settings.scheduledAt > now &&
+    settings.scheduledAt <= scheduledAt
+  ) {
     return;
   }
 
-  const delayMs = settings.maintenanceIntervalMs;
-  const scheduledAt = now + delayMs;
   await ctx.scheduler.runAfter(delayMs, internal.dataPoints.runTimeSeriesMaintenance, {});
   await ctx.db.patch(settings._id, {
     scheduledAt,
@@ -1191,7 +1270,7 @@ async function maintainSeriesState(
     if (storedState) {
       await db.delete(storedState._id);
     }
-    return;
+    return { didWork: storedState !== null, hasBacklog: false };
   }
 
   const effective = await resolveEffectivePolicy(
@@ -1200,8 +1279,9 @@ async function maintainSeriesState(
     storedState.provider,
     storedState.seriesType,
   );
-  await compactRawPoints(db, storedState, effective.tiers, now);
-  await compactRollupPoints(db, storedState, effective.tiers, now);
+  const rawResult = await compactRawPoints(db, storedState, effective.tiers, now);
+  const rollupResult = await compactRollupPoints(db, storedState, effective.tiers, now);
+  const hasBacklog = rawResult.hasBacklog || rollupResult.hasBacklog;
 
   const stillHasData = await sourceSeriesHasData(
     db,
@@ -1210,17 +1290,24 @@ async function maintainSeriesState(
   );
   if (!stillHasData) {
     await db.delete(storedState._id);
-    return;
+    return { didWork: true, hasBacklog: false };
   }
 
   const settings = await getTimeSeriesPolicySettings(db);
   await db.patch(storedState._id, {
-    nextMaintenanceAt: policyRequiresMaintenance(effective.tiers)
-      ? now + settings.maintenanceIntervalMs
-      : now + LONG_IDLE_MAINTENANCE_MS,
+    nextMaintenanceAt: hasBacklog
+      ? now
+      : policyRequiresMaintenance(effective.tiers)
+        ? now + settings.maintenanceIntervalMs
+        : now + LONG_IDLE_MAINTENANCE_MS,
     lastMaintenanceAt: now,
     updatedAt: now,
   });
+
+  return {
+    didWork: rawResult.didWork || rollupResult.didWork,
+    hasBacklog,
+  };
 }
 
 async function compactRawPoints(
@@ -1228,7 +1315,7 @@ async function compactRawPoints(
   state: StoredSeriesState,
   tiers: NormalizedTimeSeriesTier[],
   now: number,
-) {
+): Promise<MaintenanceResult> {
   const rawTier = getRawTier(tiers);
   const rawCutoff = rawTier?.toAgeMs ?? null;
   const query =
@@ -1252,7 +1339,7 @@ async function compactRawPoints(
           .take(MAINTENANCE_POINT_BATCH_SIZE);
 
   if (query.length === 0) {
-    return;
+    return { didWork: false, hasBacklog: false };
   }
 
   const rollupGroups = new Map<
@@ -1289,6 +1376,11 @@ async function compactRawPoints(
   for (const pointId of toDelete) {
     await db.delete(pointId);
   }
+
+  return {
+    didWork: toDelete.length > 0,
+    hasBacklog: query.length === MAINTENANCE_POINT_BATCH_SIZE && toDelete.length > 0,
+  };
 }
 
 async function compactRollupPoints(
@@ -1296,7 +1388,7 @@ async function compactRollupPoints(
   state: StoredSeriesState,
   tiers: NormalizedTimeSeriesTier[],
   now: number,
-) {
+): Promise<MaintenanceResult> {
   const rollups = await db
     .query("timeSeriesRollups")
     .withIndex("by_source_type_bucket", (idx) =>
@@ -1305,7 +1397,7 @@ async function compactRollupPoints(
     .take(MAINTENANCE_ROLLUP_BATCH_SIZE);
 
   if (rollups.length === 0) {
-    return;
+    return { didWork: false, hasBacklog: false };
   }
 
   const destinationGroups = new Map<
@@ -1357,6 +1449,11 @@ async function compactRollupPoints(
   for (const rollupId of toDelete) {
     await db.delete(rollupId);
   }
+
+  return {
+    didWork: toDelete.length > 0,
+    hasBacklog: rollups.length === MAINTENANCE_ROLLUP_BATCH_SIZE && toDelete.length > 0,
+  };
 }
 
 async function sourceSeriesHasData(

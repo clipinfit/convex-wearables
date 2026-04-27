@@ -224,6 +224,7 @@ export class WearablesClient {
       startDate: number;
       endDate: number;
       limit?: number;
+      order?: "asc" | "desc";
     },
   ): Promise<DataPoint[]> {
     return await ctx.runQuery(this.component.dataPoints.getTimeSeriesForUser, args);

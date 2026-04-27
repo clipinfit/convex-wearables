@@ -88,6 +88,46 @@ describe("dataPoints", () => {
       expect(points).toHaveLength(1);
       expect(points[0].value).toBe(75);
     });
+
+    it("upserts mixed replayed, changed, and new batch points", async () => {
+      const t = convexTest(schema, modules);
+      const dsId = await seedDataSource(t);
+      const firstRecordedAt = 1710000000000;
+      const secondRecordedAt = firstRecordedAt + 60000;
+      const thirdRecordedAt = firstRecordedAt + 120000;
+
+      await t.mutation(internal.dataPoints.storeBatch, {
+        dataSourceId: dsId,
+        seriesType: "heart_rate",
+        points: [
+          { recordedAt: firstRecordedAt, value: 72, externalId: "hr-1" },
+          { recordedAt: secondRecordedAt, value: 74, externalId: "hr-2" },
+        ],
+      });
+
+      await t.mutation(internal.dataPoints.storeBatch, {
+        dataSourceId: dsId,
+        seriesType: "heart_rate",
+        points: [
+          { recordedAt: firstRecordedAt, value: 72, externalId: "hr-1" },
+          { recordedAt: secondRecordedAt, value: 75, externalId: "hr-2b" },
+          { recordedAt: thirdRecordedAt, value: 76, externalId: "hr-3" },
+        ],
+      });
+
+      const points = await t.run(async (ctx) => {
+        return await ctx.db
+          .query("dataPoints")
+          .withIndex("by_source_type_time", (idx) =>
+            idx.eq("dataSourceId", dsId).eq("seriesType", "heart_rate"),
+          )
+          .collect();
+      });
+
+      expect(points).toHaveLength(3);
+      expect(points.map((point) => point.value)).toEqual([72, 75, 76]);
+      expect(points.map((point) => point.externalId)).toEqual(["hr-1", "hr-2b", "hr-3"]);
+    });
   });
 
   describe("time-series queries", () => {
@@ -122,6 +162,65 @@ describe("dataPoints", () => {
       expect(result).toHaveLength(6); // 0,1,2,3,4,5 minutes
       expect(result[0].value).toBe(70);
       expect(result[5].value).toBe(75);
+    });
+
+    it("limits user time series to the latest points by default", async () => {
+      const t = convexTest(schema, modules);
+      const dsId = await seedDataSource(t, "user-latest");
+      const start = Date.parse("2026-04-27T08:00:00Z");
+
+      await t.run(async (ctx) => {
+        for (let i = 0; i < 5; i++) {
+          await ctx.db.insert("dataPoints", {
+            dataSourceId: dsId,
+            seriesType: "heart_rate",
+            recordedAt: start + i * 60 * 1000,
+            value: 70 + i,
+          });
+        }
+      });
+
+      const latestChronological = await t.query(api.dataPoints.getTimeSeriesForUser, {
+        userId: "user-latest",
+        seriesType: "heart_rate",
+        startDate: start,
+        endDate: start + 4 * 60 * 1000,
+        limit: 2,
+      });
+
+      expect(latestChronological.map((point: { timestamp: number }) => point.timestamp)).toEqual([
+        start + 3 * 60 * 1000,
+        start + 4 * 60 * 1000,
+      ]);
+      expect(latestChronological.map((point: { value: number }) => point.value)).toEqual([73, 74]);
+
+      const oldestChronological = await t.query(api.dataPoints.getTimeSeriesForUser, {
+        userId: "user-latest",
+        seriesType: "heart_rate",
+        startDate: start,
+        endDate: start + 4 * 60 * 1000,
+        limit: 2,
+        order: "asc",
+      });
+
+      expect(oldestChronological.map((point: { timestamp: number }) => point.timestamp)).toEqual([
+        start,
+        start + 60 * 1000,
+      ]);
+
+      const latestDescending = await t.query(api.dataPoints.getTimeSeriesForUser, {
+        userId: "user-latest",
+        seriesType: "heart_rate",
+        startDate: start,
+        endDate: start + 4 * 60 * 1000,
+        limit: 2,
+        order: "desc",
+      });
+
+      expect(latestDescending.map((point: { timestamp: number }) => point.timestamp)).toEqual([
+        start + 4 * 60 * 1000,
+        start + 3 * 60 * 1000,
+      ]);
     });
 
     it("paginates with take()", async () => {
@@ -579,6 +678,121 @@ describe("dataPoints", () => {
           value: 72,
           resolution: "raw",
         });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("marks tiered series due for prompt scheduled maintenance without inline compaction", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-03-22T12:00:00Z"));
+
+      try {
+        const t = convexTest(schema, modules);
+        const dsId = await seedDataSource(t, "user-due", "garmin");
+
+        await t.mutation(api.dataPoints.replaceTimeSeriesPolicyConfiguration, {
+          defaultRules: [
+            {
+              provider: "garmin",
+              seriesType: "heart_rate",
+              tiers: [
+                { kind: "raw", fromAge: "0m", toAge: "24h" },
+                { kind: "rollup", fromAge: "24h", toAge: "7d", bucket: "30m" },
+              ],
+            },
+          ],
+          maintenance: {
+            enabled: true,
+            interval: "1h",
+          },
+        });
+
+        await t.mutation(internal.dataPoints.storeBatch, {
+          dataSourceId: dsId,
+          seriesType: "heart_rate",
+          points: [
+            {
+              recordedAt: Date.parse("2026-03-22T11:30:00Z"),
+              value: 70,
+            },
+          ],
+        });
+
+        const state = await t.run(async (ctx) => {
+          return await ctx.db
+            .query("timeSeriesSeriesState")
+            .withIndex("by_source_series", (idx) =>
+              idx.eq("dataSourceId", dsId).eq("seriesType", "heart_rate"),
+            )
+            .first();
+        });
+
+        expect(state?.nextMaintenanceAt).toBe(Date.parse("2026-03-22T12:00:00Z"));
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("keeps maintenance due when a raw compaction batch has more backlog", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-03-22T12:00:00Z"));
+
+      try {
+        const t = convexTest(schema, modules);
+        const dsId = await seedDataSource(t, "user-backlog", "garmin");
+        const start = Date.parse("2026-03-20T00:00:00Z");
+
+        await t.run(async (ctx) => {
+          for (let i = 0; i < 2001; i++) {
+            await ctx.db.insert("dataPoints", {
+              dataSourceId: dsId,
+              seriesType: "heart_rate",
+              recordedAt: start + i * 60 * 1000,
+              value: 80 + (i % 20),
+            });
+          }
+          await ctx.db.insert("timeSeriesSeriesState", {
+            dataSourceId: dsId,
+            userId: "user-backlog",
+            provider: "garmin",
+            seriesType: "heart_rate",
+            latestRecordedAt: start + 2000 * 60 * 1000,
+            lastIngestedAt: Date.now(),
+            nextMaintenanceAt: Date.now(),
+            updatedAt: Date.now(),
+          });
+        });
+
+        await t.mutation(api.dataPoints.replaceTimeSeriesPolicyConfiguration, {
+          defaultRules: [
+            {
+              provider: "garmin",
+              seriesType: "heart_rate",
+              tiers: [
+                { kind: "raw", fromAge: "0m", toAge: "24h" },
+                { kind: "rollup", fromAge: "24h", toAge: "7d", bucket: "30m" },
+              ],
+            },
+          ],
+          maintenance: {
+            enabled: true,
+            interval: "1h",
+          },
+        });
+
+        await t.mutation(internal.dataPoints.runTimeSeriesMaintenance, {});
+
+        const state = await t.run(async (ctx) => {
+          return await ctx.db
+            .query("timeSeriesSeriesState")
+            .withIndex("by_source_series", (idx) =>
+              idx.eq("dataSourceId", dsId).eq("seriesType", "heart_rate"),
+            )
+            .first();
+        });
+
+        expect(state?.nextMaintenanceAt).toBe(Date.parse("2026-03-22T12:00:00Z"));
       } finally {
         vi.useRealTimers();
       }

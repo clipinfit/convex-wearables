@@ -33,7 +33,7 @@ import {
   normalizeUserMetricsDataPoints,
 } from "./providers/garmin";
 
-const DATA_POINT_BATCH_SIZE = 100;
+const DATA_POINT_BATCH_SIZE = 500;
 
 function decodePushPayload(args: { payload?: unknown; payloadJson?: string }): GarminPushPayload {
   if (args.payloadJson !== undefined) {
