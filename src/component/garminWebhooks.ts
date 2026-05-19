@@ -559,9 +559,11 @@ async function upsertSummary<T extends { date: string; category: string }>(
 
   await ctx.runMutation(internal.summaries.upsert, {
     userId,
+    provider: "garmin",
     date,
     category,
     ...metrics,
+    source: "garmin",
   });
 }
 

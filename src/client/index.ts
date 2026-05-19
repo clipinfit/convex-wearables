@@ -316,11 +316,15 @@ export class WearablesClient {
 
   /**
    * Get daily summaries for a user.
+   *
+   * If provider is omitted, this returns provider-mixed storage rows. Multi-provider
+   * apps should pass provider or apply their own canonical precedence before display.
    */
   async getDailySummaries(
     ctx: QueryRunner,
     args: {
       userId: string;
+      provider?: ProviderName;
       category: string;
       startDate: string;
       endDate: string;

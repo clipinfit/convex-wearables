@@ -501,7 +501,9 @@ export const runConnectionSync = durableWorkflow.define({
           for (const summary of batch.summaries as NormalizedDailySummary[]) {
             await step.runMutation(internal.summaries.upsert, {
               userId: job.userId,
+              provider: job.provider,
               ...summary,
+              source: summary.source ?? job.provider,
             });
           }
           processed += batch.summaries.length;

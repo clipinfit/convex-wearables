@@ -155,6 +155,8 @@ export interface SdkPushDataPoint extends SdkSourceMetadata {
 export interface SdkPushSummary {
   date: string;
   category: string;
+  source?: string;
+  originalSourceName?: string;
   totalSteps?: number;
   totalCalories?: number;
   activeCalories?: number;
@@ -411,6 +413,10 @@ export interface EventsPage {
 export interface DailySummary {
   _id: string;
   userId: string;
+  provider?: ProviderName;
+  dataSourceId?: string;
+  source?: string;
+  originalSourceName?: string;
   date: string;
   category: string;
   // Activity

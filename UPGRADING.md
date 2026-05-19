@@ -25,6 +25,27 @@ Use the package version to signal upgrade risk:
 In practice, yes: changes like new optional fields or new tables should usually
 be `minor`, not `major`.
 
+## Provider-aware daily summaries
+
+The provider-aware daily summaries release adds provider provenance to
+`dailySummaries` so native Apple Health, Google Health Connect, Garmin, and
+other provider summaries can coexist for the same user, date, and category.
+
+This is a migration-safe minor release:
+
+- Existing `dailySummaries` rows remain readable because the stored `provider`
+  field is optional at the schema layer.
+- New summary writes require `provider` and are keyed by user, provider,
+  category, and date.
+- Provider-filtered reads only return rows that already have that provider. They
+  do not infer a provider for legacy rows.
+- No host-run data migration is required for deployment.
+
+Host apps that display canonical daily totals should pass `provider` to
+`getDailySummaries` or merge rows using their own source precedence rules.
+Unfiltered reads are useful for inspection and custom reconciliation, but they
+are provider-mixed storage reads.
+
 ## What Convex does, and does not do
 
 Convex will validate a pushed schema against the data already stored in the

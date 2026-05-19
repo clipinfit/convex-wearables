@@ -113,6 +113,8 @@ export interface NormalizedDataPoint {
 export interface NormalizedDailySummary {
   date: string;
   category: string;
+  source?: string;
+  originalSourceName?: string;
   totalSteps?: number;
   totalCalories?: number;
   activeCalories?: number;

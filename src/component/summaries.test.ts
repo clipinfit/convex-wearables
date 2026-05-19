@@ -1,5 +1,6 @@
 import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
+import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import { modules } from "./test.setup";
 
@@ -81,6 +82,62 @@ describe("summaries", () => {
       expect(summaries[0].totalSteps).toBe(10000);
       expect(summaries[0].activeMinutes).toBe(45);
     });
+
+    it("upserts summaries by user provider category and date", async () => {
+      const t = convexTest(schema, modules);
+
+      await t.mutation(internal.summaries.upsert, {
+        userId: "user-1",
+        provider: "garmin",
+        date: "2026-03-15",
+        category: "activity",
+        totalSteps: 10000,
+        activeCalories: 600,
+      });
+
+      await t.mutation(internal.summaries.upsert, {
+        userId: "user-1",
+        provider: "apple",
+        date: "2026-03-15",
+        category: "activity",
+        source: "healthkit",
+        originalSourceName: "Apple Watch",
+        totalSteps: 8500,
+        activeCalories: 430,
+      });
+
+      await t.mutation(internal.summaries.upsert, {
+        userId: "user-1",
+        provider: "garmin",
+        date: "2026-03-15",
+        category: "activity",
+        totalSteps: 11000,
+      });
+
+      const summaries = await t.run(async (ctx) => {
+        return await ctx.db
+          .query("dailySummaries")
+          .withIndex("by_user_category_date", (idx) =>
+            idx.eq("userId", "user-1").eq("category", "activity").eq("date", "2026-03-15"),
+          )
+          .collect();
+      });
+
+      expect(summaries).toHaveLength(2);
+      const garmin = summaries.find((summary) => summary.provider === "garmin");
+      const apple = summaries.find((summary) => summary.provider === "apple");
+
+      expect(garmin).toMatchObject({
+        totalSteps: 11000,
+        activeCalories: 600,
+      });
+      expect(apple).toMatchObject({
+        source: "healthkit",
+        originalSourceName: "Apple Watch",
+        totalSteps: 8500,
+        activeCalories: 430,
+      });
+    });
   });
 
   describe("getDailySummaries", () => {
@@ -155,6 +212,48 @@ describe("summaries", () => {
       expect(activity[0].totalSteps).toBe(10000);
       expect(sleep).toHaveLength(1);
       expect(sleep[0].sleepDurationMinutes).toBe(480);
+    });
+
+    it("filters summaries by provider when requested", async () => {
+      const t = convexTest(schema, modules);
+
+      await t.mutation(internal.summaries.upsert, {
+        userId: "user-1",
+        provider: "garmin",
+        date: "2026-03-15",
+        category: "activity",
+        totalSteps: 10000,
+      });
+      await t.mutation(internal.summaries.upsert, {
+        userId: "user-1",
+        provider: "google",
+        date: "2026-03-15",
+        category: "activity",
+        source: "health-connect",
+        totalSteps: 9200,
+      });
+
+      const google = await t.query(api.summaries.getDailySummaries, {
+        userId: "user-1",
+        provider: "google",
+        category: "activity",
+        startDate: "2026-03-15",
+        endDate: "2026-03-15",
+      });
+      const mixed = await t.query(api.summaries.getDailySummaries, {
+        userId: "user-1",
+        category: "activity",
+        startDate: "2026-03-15",
+        endDate: "2026-03-15",
+      });
+
+      expect(google).toHaveLength(1);
+      expect(google[0]).toMatchObject({
+        provider: "google",
+        source: "health-connect",
+        totalSteps: 9200,
+      });
+      expect(mixed).toHaveLength(2);
     });
   });
 

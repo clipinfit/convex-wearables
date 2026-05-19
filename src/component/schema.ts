@@ -200,6 +200,10 @@ export default defineSchema({
   // -------------------------------------------------------------------------
   dailySummaries: defineTable({
     userId: v.string(),
+    provider: v.optional(providerName),
+    dataSourceId: v.optional(v.id("dataSources")),
+    source: v.optional(v.string()),
+    originalSourceName: v.optional(v.string()),
     date: v.string(), // "2026-03-15" (ISO date string)
     category: v.string(), // "activity" | "sleep" | "recovery" | "body"
 
@@ -241,6 +245,8 @@ export default defineSchema({
     bodyBattery: v.optional(v.number()),
     spo2Avg: v.optional(v.number()),
   })
+    .index("by_user_provider_category_date", ["userId", "provider", "category", "date"])
+    .index("by_user_provider_date", ["userId", "provider", "date"])
     .index("by_user_category_date", ["userId", "category", "date"])
     .index("by_user_date", ["userId", "date"]),
 

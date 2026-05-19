@@ -346,6 +346,8 @@ describe("garminWebhooks", () => {
     );
 
     expect(activitySummary).toMatchObject({
+      provider: "garmin",
+      source: "garmin",
       totalSteps: 12345,
       totalCalories: 2190,
       activeCalories: 640,

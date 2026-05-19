@@ -130,6 +130,20 @@ describe("sdkPush", () => {
         .collect();
     });
     expect(summaries).toHaveLength(2);
+    expect(summaries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          provider: "google",
+          source: "health-connect",
+          category: "activity",
+        }),
+        expect.objectContaining({
+          provider: "google",
+          source: "health-connect",
+          category: "recovery",
+        }),
+      ]),
+    );
   });
 
   it("deduplicates SDK pushes by external id and source-time keys", async () => {
@@ -304,10 +318,79 @@ describe("sdkPush", () => {
 
     expect(summaries).toHaveLength(1);
     expect(summaries[0]).toMatchObject({
+      provider: "google",
+      source: "health-connect",
       category: "activity",
       totalSteps: 12345,
       totalCalories: 780,
     });
+  });
+
+  it("keeps Apple and Google daily summaries separate for the same user date and category", async () => {
+    const t = convexTest(schema, modules);
+
+    await t.action(api.sdkPush.ingestNormalizedPayload, {
+      userId: "user-mixed",
+      provider: "apple",
+      sourceMetadata: {
+        source: "healthkit",
+        originalSourceName: "Apple Watch",
+      },
+      summaries: [
+        {
+          date: "2026-03-18",
+          category: "activity",
+          totalSteps: 9000,
+          activeCalories: 450,
+        },
+      ],
+    });
+
+    await t.action(api.sdkPush.ingestNormalizedPayload, {
+      userId: "user-mixed",
+      provider: "google",
+      sourceMetadata: {
+        source: "health-connect",
+        originalSourceName: "com.google.android.apps.fitness",
+      },
+      summaries: [
+        {
+          date: "2026-03-18",
+          category: "activity",
+          totalSteps: 7200,
+          activeCalories: 330,
+        },
+      ],
+    });
+
+    const summaries = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("dailySummaries")
+        .withIndex("by_user_category_date", (idx) =>
+          idx.eq("userId", "user-mixed").eq("category", "activity").eq("date", "2026-03-18"),
+        )
+        .collect();
+    });
+
+    expect(summaries).toHaveLength(2);
+    expect(summaries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          provider: "apple",
+          source: "healthkit",
+          originalSourceName: "Apple Watch",
+          totalSteps: 9000,
+          activeCalories: 450,
+        }),
+        expect.objectContaining({
+          provider: "google",
+          source: "health-connect",
+          originalSourceName: "com.google.android.apps.fitness",
+          totalSteps: 7200,
+          activeCalories: 330,
+        }),
+      ]),
+    );
   });
 
   it("batches large data-point payloads across multiple writes", async () => {

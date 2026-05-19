@@ -93,6 +93,8 @@ const sdkDataPointValidator = v.object({
 const sdkSummaryValidator = v.object({
   date: v.string(),
   category: v.string(),
+  source: v.optional(v.string()),
+  originalSourceName: v.optional(v.string()),
   totalSteps: v.optional(v.number()),
   totalCalories: v.optional(v.number()),
   activeCalories: v.optional(v.number()),
@@ -360,7 +362,10 @@ export const ingestNormalizedPayload = action({
     for (const summary of summaries) {
       await ctx.runMutation(internal.summaries.upsert, {
         userId: args.userId,
+        provider: args.provider,
         ...summary,
+        source: summary.source ?? defaultMetadata.source,
+        originalSourceName: summary.originalSourceName ?? defaultMetadata.originalSourceName,
       });
     }
 

@@ -110,6 +110,7 @@ export const getWeeklySummary = query({
   handler: async (ctx, args) => {
     return await wearables.getDailySummaries(ctx, {
       userId: args.userId,
+      provider: "garmin",
       category: "activity",
       startDate: "2026-03-09",
       endDate: "2026-03-15",
@@ -259,9 +260,14 @@ When a query returns rollup-backed points, each point can also include:
 
 | Method | Description |
 |--------|-------------|
-| `getDailySummaries(ctx, { userId, category, startDate, endDate })` | Get daily aggregates |
+| `getDailySummaries(ctx, { userId, provider?, category, startDate, endDate })` | Get daily aggregates, optionally scoped to one provider |
 
 Categories: `"activity"`, `"sleep"`, `"recovery"`, `"body"`.
+
+Daily summary rows are provider-aware. Multi-provider apps should pass
+`provider` or apply their own canonical source precedence before showing totals;
+omitting `provider` returns the storage rows across providers for the requested
+category and date range.
 
 #### Data Sources
 
@@ -608,7 +614,7 @@ export const getStoragePolicies = query({
 | `dataPoints` | Time-series health metrics | `by_source_type_time`, `by_type_time` |
 | `timeSeriesRollups` | Bucketed historical time-series rollups | `by_source_type_bucket`, `by_source_type_bucket_size`, `by_source_bucket`, `by_type_bucket` |
 | `events` | Workouts and sleep sessions | `by_user_category_time`, `by_external_id`, `by_source_start_end` |
-| `dailySummaries` | Precomputed daily aggregates | `by_user_category_date`, `by_user_date` |
+| `dailySummaries` | Provider-aware daily aggregates | `by_user_provider_category_date`, `by_user_provider_date`, `by_user_category_date`, `by_user_date` |
 | `syncJobs` | Sync workflow tracking | `by_user`, `by_user_provider`, `by_user_status`, `by_status` |
 | `oauthStates` | Temporary OAuth PKCE state | `by_state` |
 | `timeSeriesPolicyRules` | Persisted default rules and preset rules | `by_set`, `by_set_scope` |
@@ -821,6 +827,9 @@ Then POST a pre-normalized payload from your mobile app:
 ```
 
 The backend stores the payload using the same `connections`, `dataSources`, `events`, `dataPoints`, and `dailySummaries` tables as the cloud providers.
+Daily summaries are keyed by user, provider, category, and date, so Apple Health,
+Google Health Connect, Garmin, and other providers can coexist without
+overwriting each other's aggregate rows.
 
 The SDK payload also accepts `device` and `dailySummaries` as compatibility aliases, and normalizes common Health Connect metric names like `hrv_rmssd`.
 

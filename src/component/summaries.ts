@@ -1,5 +1,37 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery, query } from "./_generated/server";
+import { providerName } from "./schema";
+
+const summaryMetricsValidator = {
+  totalSteps: v.optional(v.number()),
+  totalCalories: v.optional(v.number()),
+  activeCalories: v.optional(v.number()),
+  activeMinutes: v.optional(v.number()),
+  totalDistance: v.optional(v.number()),
+  floorsClimbed: v.optional(v.number()),
+  avgHeartRate: v.optional(v.number()),
+  maxHeartRate: v.optional(v.number()),
+  minHeartRate: v.optional(v.number()),
+  sleepDurationMinutes: v.optional(v.number()),
+  sleepEfficiency: v.optional(v.number()),
+  deepSleepMinutes: v.optional(v.number()),
+  remSleepMinutes: v.optional(v.number()),
+  lightSleepMinutes: v.optional(v.number()),
+  awakeDuringMinutes: v.optional(v.number()),
+  timeInBedMinutes: v.optional(v.number()),
+  hrvAvg: v.optional(v.number()),
+  hrvRmssd: v.optional(v.number()),
+  restingHeartRate: v.optional(v.number()),
+  recoveryScore: v.optional(v.number()),
+  weight: v.optional(v.number()),
+  bodyFatPercentage: v.optional(v.number()),
+  bodyMassIndex: v.optional(v.number()),
+  leanBodyMass: v.optional(v.number()),
+  bodyTemperature: v.optional(v.number()),
+  avgStressLevel: v.optional(v.number()),
+  bodyBattery: v.optional(v.number()),
+  spo2Avg: v.optional(v.number()),
+};
 
 // ---------------------------------------------------------------------------
 // Queries
@@ -7,17 +39,33 @@ import { internalMutation, internalQuery, query } from "./_generated/server";
 
 /**
  * Get daily summaries for a user by category and date range.
- * Returns one document per day — very efficient (365 docs for a full year).
+ * When provider is omitted this returns provider-mixed storage rows and is not
+ * a canonical product view for multi-provider apps.
  */
 export const getDailySummaries = query({
   args: {
     userId: v.string(),
+    provider: v.optional(providerName),
     category: v.string(),
     startDate: v.string(), // "2026-03-01"
     endDate: v.string(), // "2026-03-15"
   },
   returns: v.array(v.any()),
   handler: async (ctx, args) => {
+    if (args.provider !== undefined) {
+      return await ctx.db
+        .query("dailySummaries")
+        .withIndex("by_user_provider_category_date", (idx) =>
+          idx
+            .eq("userId", args.userId)
+            .eq("provider", args.provider)
+            .eq("category", args.category)
+            .gte("date", args.startDate)
+            .lte("date", args.endDate),
+        )
+        .collect();
+    }
+
     return await ctx.db
       .query("dailySummaries")
       .withIndex("by_user_category_date", (idx) =>
@@ -37,10 +85,20 @@ export const getDailySummaries = query({
 export const getByUserDate = internalQuery({
   args: {
     userId: v.string(),
+    provider: v.optional(providerName),
     date: v.string(),
   },
   returns: v.array(v.any()),
   handler: async (ctx, args) => {
+    if (args.provider !== undefined) {
+      return await ctx.db
+        .query("dailySummaries")
+        .withIndex("by_user_provider_date", (idx) =>
+          idx.eq("userId", args.userId).eq("provider", args.provider).eq("date", args.date),
+        )
+        .collect();
+    }
+
     return await ctx.db
       .query("dailySummaries")
       .withIndex("by_user_date", (idx) => idx.eq("userId", args.userId).eq("date", args.date))
@@ -59,68 +117,60 @@ export const getByUserDate = internalQuery({
 export const upsert = internalMutation({
   args: {
     userId: v.string(),
+    provider: providerName,
+    dataSourceId: v.optional(v.id("dataSources")),
+    source: v.optional(v.string()),
+    originalSourceName: v.optional(v.string()),
     date: v.string(),
     category: v.string(),
     // All metric fields are optional — only provided fields are updated
-    totalSteps: v.optional(v.number()),
-    totalCalories: v.optional(v.number()),
-    activeCalories: v.optional(v.number()),
-    activeMinutes: v.optional(v.number()),
-    totalDistance: v.optional(v.number()),
-    floorsClimbed: v.optional(v.number()),
-    avgHeartRate: v.optional(v.number()),
-    maxHeartRate: v.optional(v.number()),
-    minHeartRate: v.optional(v.number()),
-    sleepDurationMinutes: v.optional(v.number()),
-    sleepEfficiency: v.optional(v.number()),
-    deepSleepMinutes: v.optional(v.number()),
-    remSleepMinutes: v.optional(v.number()),
-    lightSleepMinutes: v.optional(v.number()),
-    awakeDuringMinutes: v.optional(v.number()),
-    timeInBedMinutes: v.optional(v.number()),
-    hrvAvg: v.optional(v.number()),
-    hrvRmssd: v.optional(v.number()),
-    restingHeartRate: v.optional(v.number()),
-    recoveryScore: v.optional(v.number()),
-    weight: v.optional(v.number()),
-    bodyFatPercentage: v.optional(v.number()),
-    bodyMassIndex: v.optional(v.number()),
-    leanBodyMass: v.optional(v.number()),
-    bodyTemperature: v.optional(v.number()),
-    avgStressLevel: v.optional(v.number()),
-    bodyBattery: v.optional(v.number()),
-    spo2Avg: v.optional(v.number()),
+    ...summaryMetricsValidator,
   },
   returns: v.id("dailySummaries"),
   handler: async (ctx, args) => {
-    const { userId, date, category, ...metrics } = args;
+    const {
+      userId,
+      provider,
+      dataSourceId,
+      source,
+      originalSourceName,
+      date,
+      category,
+      ...metrics
+    } = args;
 
-    // Find existing summary for this user/date/category
+    // New writes are provider-scoped. Legacy rows without provider remain
+    // readable through unfiltered queries but are not canonical for new ingest.
     const existing = await ctx.db
       .query("dailySummaries")
-      .withIndex("by_user_category_date", (idx) =>
-        idx.eq("userId", userId).eq("category", category).eq("date", date),
+      .withIndex("by_user_provider_category_date", (idx) =>
+        idx.eq("userId", userId).eq("provider", provider).eq("category", category).eq("date", date),
       )
       .first();
 
-    // Filter out undefined values from metrics
-    const definedMetrics: Record<string, number> = {};
-    for (const [key, value] of Object.entries(metrics)) {
+    const definedFields: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries({
+      dataSourceId,
+      source,
+      originalSourceName,
+      ...metrics,
+    })) {
       if (value !== undefined) {
-        definedMetrics[key] = value;
+        definedFields[key] = value;
       }
     }
 
     if (existing) {
-      await ctx.db.patch(existing._id, definedMetrics);
+      await ctx.db.patch(existing._id, definedFields);
       return existing._id;
     }
 
     return await ctx.db.insert("dailySummaries", {
       userId,
+      provider,
       date,
       category,
-      ...definedMetrics,
+      ...definedFields,
     });
   },
 });
