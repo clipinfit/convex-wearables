@@ -1,16 +1,22 @@
 ---
-date: 2026-04-25
-status: NOT_IMPLEMENTED
+date: 2026-05-01
+status: DEFERRED
+priority: POST_HEALTH_CONNECT
 semver: minor
 owner_repo: convex-wearables
 linked_mobile_prd: "../../clipin-app/docs/samsung-health-mobile-sdk-prd.md"
+linked_component_prd: "./provider-aware-daily-summaries-prd.md"
 ---
 
 # Samsung Health Mobile SDK Component Dependencies
 
 ## Summary
 
-Samsung Health should be implemented in the CLIPIN mobile app as an Android mobile SDK integration. The mobile app should read Samsung Health on-device, normalize records into the existing `@clipin/convex-wearables` SDK push payload, and call a CLIPIN-authenticated backend wrapper.
+This component PRD is deferred because the direct Samsung Health mobile SDK plan is now post-Health-Connect.
+
+Near-term Android support should use Health Connect. Samsung Health can synchronize user-approved Samsung Health data into Health Connect, so Samsung-origin records can reach CLIPIN through the existing `google` provider path when users link Samsung Health to Health Connect.
+
+If direct Samsung Health is revived later, the mobile app should read Samsung Health on-device, normalize records into the existing `@clipin/convex-wearables` SDK push payload, and call a CLIPIN-authenticated backend wrapper.
 
 The component already supports the core ingestion path needed for Samsung:
 
@@ -20,11 +26,13 @@ The component already supports the core ingestion path needed for Samsung:
 
 This PRD is therefore not the main Samsung implementation plan. The main plan lives in [clipin-app Samsung Health Mobile SDK PRD](../../clipin-app/docs/samsung-health-mobile-sdk-prd.md).
 
-This component PRD only tracks component-side dependencies that must be solved before Samsung Health can be safely enabled in a multi-provider CLIPIN production account.
+This component PRD only tracks component-side dependencies that must be solved before direct Samsung Health can be safely enabled in a multi-provider CLIPIN production account.
+
+The canonical component dependency for summary storage is now [Provider-Aware Daily Summaries PRD](./provider-aware-daily-summaries-prd.md). That shared summary work remains relevant for Apple Health, Health Connect, Garmin, and future direct providers; this deferred Samsung PRD should stay aligned with it rather than defining a Samsung-only summary model.
 
 ## Why Any Component Work Is Still Needed
 
-The current normalized SDK push path is enough for a mobile app to send Samsung events and data points.
+The current normalized SDK push path is enough for a future mobile app to send Samsung events and data points.
 
 The production risk is daily summaries and canonical reads:
 
@@ -33,9 +41,13 @@ The production risk is daily summaries and canonical reads:
 - if Garmin and Samsung both write activity summaries for the same day, the last writer can overwrite the other provider's totals
 - user-facing CLIPIN surfaces need source-aware reads so they can apply provider precedence instead of blindly mixing providers
 
-This is the same component dependency already documented by `clipin-app` for Apple Health and Health Connect. Samsung should rely on the same fix rather than introducing Samsung-specific storage.
+This is the same component dependency already documented by `clipin-app` for Apple Health and Health Connect. If direct Samsung is revived later, Samsung should rely on the same fix rather than introducing Samsung-specific storage.
+
+See [Provider-Aware Daily Summaries PRD](./provider-aware-daily-summaries-prd.md) for the shared schema, ingest, migration, and acceptance criteria.
 
 ## Goals
+
+These goals apply only if direct Samsung Health is later revived.
 
 - Keep Samsung Health as a normalized SDK push provider.
 - Avoid adding Samsung OAuth, webhooks, or provider pull sync.
@@ -130,6 +142,8 @@ Recommended migration:
 
 ## Acceptance Criteria
 
+These acceptance criteria apply only if direct Samsung Health is later revived.
+
 - Samsung SDK pushes can write summaries without overwriting Garmin summaries for the same user/date/category.
 - Apple, Google, and Samsung SDK pushes use the same summary provenance behavior.
 - CLIPIN can query Samsung summaries separately from Garmin summaries.
@@ -139,6 +153,7 @@ Recommended migration:
 
 ## Linked Work
 
+- Shared component dependency: [Provider-Aware Daily Summaries PRD](./provider-aware-daily-summaries-prd.md)
 - Main mobile implementation PRD: [Samsung Health Mobile SDK PRD](../../clipin-app/docs/samsung-health-mobile-sdk-prd.md)
 - Existing native-provider plan in CLIPIN: [Apple Health and Health Connect Integration PRD](../../clipin-app/docs/apple-health-health-connect-prd.md)
 - Existing component ingestion file: [src/component/sdkPush.ts](/Users/denis/git/clipin/convex-wearables/src/component/sdkPush.ts)
