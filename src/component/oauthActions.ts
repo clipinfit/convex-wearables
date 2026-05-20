@@ -192,6 +192,12 @@ export const handleCallback = action({
       source: oauthState.provider,
     });
 
+    if (oauthState.provider === "garmin") {
+      await ctx.runAction(internal.garminWebhooks.replayPendingForConnection, {
+        connectionId,
+      });
+    }
+
     return {
       provider: oauthState.provider,
       userId: oauthState.userId,

@@ -308,6 +308,31 @@ export default defineSchema({
   }).index("by_provider", ["provider"]),
 
   // -------------------------------------------------------------------------
+  // Pending Garmin Push Payloads — short-lived replay queue for OAuth reconnect
+  // races where Garmin pushes data before the connection is active again.
+  // -------------------------------------------------------------------------
+  pendingGarminPushPayloads: defineTable({
+    connectionId: v.id("connections"),
+    userId: v.string(),
+    providerUserId: v.string(),
+    garminClientId: v.string(),
+    payloadJson: v.string(),
+    receivedAt: v.number(),
+    expiresAt: v.number(),
+    replayedAt: v.optional(v.number()),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("replayed"),
+      v.literal("expired"),
+      v.literal("failed"),
+    ),
+    error: v.optional(v.string()),
+  })
+    .index("by_connection_status", ["connectionId", "status"])
+    .index("by_provider_user_status", ["providerUserId", "status"])
+    .index("by_expires", ["expiresAt"]),
+
+  // -------------------------------------------------------------------------
   // Time-Series Policy Rules — default and preset-based storage rules
   // -------------------------------------------------------------------------
   timeSeriesPolicyRules: defineTable({

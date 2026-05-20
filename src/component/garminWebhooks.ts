@@ -8,7 +8,13 @@
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
-import { type ActionCtx, action } from "./_generated/server";
+import {
+  type ActionCtx,
+  action,
+  internalAction,
+  internalMutation,
+  internalQuery,
+} from "./_generated/server";
 import {
   type GarminPushPayload,
   normalizeActivity,
@@ -34,6 +40,8 @@ import {
 } from "./providers/garmin";
 
 const DATA_POINT_BATCH_SIZE = 500;
+const PENDING_GARMIN_PUSH_TTL_MS = 30 * 60 * 1000;
+const PENDING_GARMIN_PUSH_REPLAY_LIMIT = 20;
 
 function decodePushPayload(args: { payload?: unknown; payloadJson?: string }): GarminPushPayload {
   if (args.payloadJson !== undefined) {
@@ -60,6 +68,8 @@ export const processPushPayload = action({
   handler: async (ctx, args) => {
     const payload = decodePushPayload(args);
     const signalBuckets = new Map<string, Set<string>>();
+
+    await queuePendingPayloadForInactiveConnections(ctx, payload, args.garminClientId);
 
     await processActivityEntries(ctx, payload.activities, "activities", signalBuckets);
     await processActivityEntries(ctx, payload.activityDetails, "activityDetails", signalBuckets);
@@ -438,6 +448,145 @@ export const processPushPayload = action({
   },
 });
 
+export const replayPendingForConnection = internalAction({
+  args: {
+    connectionId: v.id("connections"),
+  },
+  returns: v.object({
+    failed: v.number(),
+    replayed: v.number(),
+    skipped: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const skipped = await ctx.runMutation(internal.garminWebhooks.markExpiredPendingForConnection, {
+      connectionId: args.connectionId,
+      now: Date.now(),
+    });
+    const pendingPayloads = await ctx.runQuery(internal.garminWebhooks.getReplayablePending, {
+      connectionId: args.connectionId,
+      now: Date.now(),
+    });
+    let failed = 0;
+    let replayed = 0;
+
+    for (const pending of pendingPayloads) {
+      try {
+        await ctx.runAction(api.garminWebhooks.processPushPayload, {
+          garminClientId: pending.garminClientId,
+          payloadJson: pending.payloadJson,
+        });
+        await ctx.runMutation(internal.garminWebhooks.markPendingReplayed, {
+          pendingId: pending._id,
+        });
+        replayed += 1;
+      } catch (error) {
+        failed += 1;
+        await ctx.runMutation(internal.garminWebhooks.markPendingFailed, {
+          pendingId: pending._id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    return { failed, replayed, skipped };
+  },
+});
+
+export const getReplayablePending = internalQuery({
+  args: {
+    connectionId: v.id("connections"),
+    now: v.number(),
+  },
+  returns: v.array(v.any()),
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("pendingGarminPushPayloads")
+      .withIndex("by_connection_status", (idx) =>
+        idx.eq("connectionId", args.connectionId).eq("status", "pending"),
+      )
+      .order("asc")
+      .take(PENDING_GARMIN_PUSH_REPLAY_LIMIT);
+
+    return rows.filter((row) => row.expiresAt > args.now);
+  },
+});
+
+export const storePendingPayload = internalMutation({
+  args: {
+    connectionId: v.id("connections"),
+    userId: v.string(),
+    providerUserId: v.string(),
+    garminClientId: v.string(),
+    payloadJson: v.string(),
+    receivedAt: v.number(),
+    expiresAt: v.number(),
+  },
+  returns: v.id("pendingGarminPushPayloads"),
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("pendingGarminPushPayloads", {
+      ...args,
+      status: "pending",
+    });
+  },
+});
+
+export const markPendingReplayed = internalMutation({
+  args: {
+    pendingId: v.id("pendingGarminPushPayloads"),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.pendingId, {
+      replayedAt: Date.now(),
+      status: "replayed",
+      error: undefined,
+    });
+    return null;
+  },
+});
+
+export const markPendingFailed = internalMutation({
+  args: {
+    pendingId: v.id("pendingGarminPushPayloads"),
+    error: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.pendingId, {
+      error: args.error,
+      status: "failed",
+    });
+    return null;
+  },
+});
+
+export const markExpiredPendingForConnection = internalMutation({
+  args: {
+    connectionId: v.id("connections"),
+    now: v.number(),
+  },
+  returns: v.number(),
+  handler: async (ctx, args) => {
+    const expired = await ctx.db
+      .query("pendingGarminPushPayloads")
+      .withIndex("by_connection_status", (idx) =>
+        idx.eq("connectionId", args.connectionId).eq("status", "pending"),
+      )
+      .filter((q) => q.lte(q.field("expiresAt"), args.now))
+      .collect();
+
+    await Promise.all(
+      expired.map((row) =>
+        ctx.db.patch(row._id, {
+          status: "expired",
+        }),
+      ),
+    );
+
+    return expired.length;
+  },
+});
+
 async function processActivityEntries(
   ctx: Pick<ActionCtx, "runQuery" | "runMutation">,
   activities: GarminPushPayload["activities"] | GarminPushPayload["activityDetails"],
@@ -644,6 +793,103 @@ async function resolveConnection(
   }
 
   return connection;
+}
+
+function collectGarminUserIds(payload: GarminPushPayload): string[] {
+  const userIds = new Set<string>();
+  const maybeAdd = (entry: { userId?: unknown } | null | undefined) => {
+    if (typeof entry?.userId === "string" && entry.userId.length > 0) {
+      userIds.add(entry.userId);
+    }
+  };
+
+  for (const entry of payload.activities ?? []) maybeAdd(entry);
+  for (const entry of payload.activityDetails ?? []) maybeAdd(entry);
+  for (const entry of payload.sleeps ?? []) maybeAdd(entry);
+  for (const entry of payload.dailies ?? []) maybeAdd(entry);
+  for (const entry of payload.epochs ?? []) maybeAdd(entry);
+  for (const entry of payload.bodyComps ?? []) maybeAdd(entry);
+  for (const entry of payload.hrv ?? []) maybeAdd(entry);
+  for (const entry of payload.stressDetails ?? []) maybeAdd(entry);
+  for (const entry of payload.respiration ?? []) maybeAdd(entry);
+  for (const entry of payload.pulseOx ?? []) maybeAdd(entry);
+  for (const entry of payload.bloodPressures ?? []) maybeAdd(entry);
+  for (const entry of payload.userMetrics ?? []) maybeAdd(entry);
+  for (const entry of payload.skinTemp ?? []) maybeAdd(entry);
+  for (const entry of payload.healthSnapshot ?? []) maybeAdd(entry);
+  for (const entry of payload.moveiq ?? []) maybeAdd(entry);
+  for (const entry of payload.menstrualCycleTracking ?? []) maybeAdd(entry);
+  for (const entry of payload.mct ?? []) maybeAdd(entry);
+  for (const entry of payload.userPermissionsChange ?? []) maybeAdd(entry);
+  for (const entry of payload.deregistrations ?? []) maybeAdd(entry);
+
+  return [...userIds];
+}
+
+function filterGarminPayloadByUserId(
+  payload: GarminPushPayload,
+  providerUserId: string,
+): GarminPushPayload {
+  const filterEntries = <T extends { userId?: unknown }>(entries: T[] | undefined): T[] =>
+    (entries ?? []).filter((entry) => entry.userId === providerUserId);
+
+  return {
+    activities: filterEntries(payload.activities),
+    activityDetails: filterEntries(payload.activityDetails),
+    sleeps: filterEntries(payload.sleeps),
+    dailies: filterEntries(payload.dailies),
+    epochs: filterEntries(payload.epochs),
+    bodyComps: filterEntries(payload.bodyComps),
+    hrv: filterEntries(payload.hrv),
+    stressDetails: filterEntries(payload.stressDetails),
+    respiration: filterEntries(payload.respiration),
+    pulseOx: filterEntries(payload.pulseOx),
+    bloodPressures: filterEntries(payload.bloodPressures),
+    userMetrics: filterEntries(payload.userMetrics),
+    skinTemp: filterEntries(payload.skinTemp),
+    healthSnapshot: filterEntries(payload.healthSnapshot),
+    moveiq: filterEntries(payload.moveiq),
+    menstrualCycleTracking: filterEntries(payload.menstrualCycleTracking),
+    mct: filterEntries(payload.mct),
+    userPermissionsChange: filterEntries(payload.userPermissionsChange),
+    deregistrations: filterEntries(payload.deregistrations),
+  };
+}
+
+async function queuePendingPayloadForInactiveConnections(
+  ctx: Pick<ActionCtx, "runMutation" | "runQuery">,
+  payload: GarminPushPayload,
+  garminClientId: string,
+) {
+  const userIds = collectGarminUserIds(payload);
+  if (userIds.length === 0) {
+    return;
+  }
+
+  const receivedAt = Date.now();
+
+  for (const providerUserId of userIds) {
+    const conn = (await ctx.runQuery(internal.connections.getByProviderUser, {
+      provider: "garmin",
+      providerUserId,
+    })) as Doc<"connections"> | null;
+
+    if (!conn || conn.status === "active") {
+      continue;
+    }
+
+    const payloadJson = JSON.stringify(filterGarminPayloadByUserId(payload, providerUserId));
+
+    await ctx.runMutation(internal.garminWebhooks.storePendingPayload, {
+      connectionId: conn._id,
+      userId: conn.userId,
+      providerUserId,
+      garminClientId,
+      payloadJson,
+      receivedAt,
+      expiresAt: receivedAt + PENDING_GARMIN_PUSH_TTL_MS,
+    });
+  }
 }
 
 /**

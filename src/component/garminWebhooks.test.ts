@@ -1,6 +1,6 @@
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { GARMIN_BACKFILL_TYPES } from "./garminBackfill";
 import { triggerBackfill } from "./providers/garmin";
 import schema from "./schema";
@@ -16,7 +16,7 @@ afterEach(() => {
 });
 
 describe("garminWebhooks", () => {
-  it("ignores Garmin push data for inactive connections", async () => {
+  it("queues Garmin push data for inactive connections without ingesting it", async () => {
     const t = createTest();
 
     await t.run(async (ctx) => {
@@ -58,10 +58,12 @@ describe("garminWebhooks", () => {
       const dataPoints = await ctx.db.query("dataPoints").collect();
       const summaries = await ctx.db.query("dailySummaries").collect();
       const sources = await ctx.db.query("dataSources").collect();
+      const pending = await ctx.db.query("pendingGarminPushPayloads").collect();
 
       return {
         events,
         dataPoints,
+        pending,
         summaries,
         sources,
       };
@@ -71,6 +73,90 @@ describe("garminWebhooks", () => {
     expect(persisted.dataPoints).toHaveLength(0);
     expect(persisted.summaries).toHaveLength(0);
     expect(persisted.sources).toHaveLength(0);
+    expect(persisted.pending).toHaveLength(1);
+    expect(persisted.pending[0]).toMatchObject({
+      providerUserId: "garmin-user-1",
+      status: "pending",
+    });
+  });
+
+  it("replays queued Garmin push data after a reconnect activates the connection", async () => {
+    const t = createTest();
+
+    const connectionId = await t.run(async (ctx) => {
+      return await ctx.db.insert("connections", {
+        userId: "user-reconnect",
+        provider: "garmin",
+        providerUserId: "garmin-user-reconnect",
+        status: "inactive",
+      });
+    });
+
+    const dayStart = Math.floor(Date.parse("2026-03-16T00:00:00Z") / 1000);
+
+    await t.action(api.garminWebhooks.processPushPayload, {
+      garminClientId: "garmin-client",
+      payload: {
+        dailies: [
+          {
+            userId: "garmin-user-reconnect",
+            summaryId: "daily-reconnect-1",
+            startTimeInSeconds: dayStart,
+            durationInSeconds: 24 * 60 * 60,
+            calendarDate: "2026-03-16",
+            steps: 4321,
+            restingHeartRateInBeatsPerMinute: 51,
+            timeOffsetHeartRateSamples: {
+              "0": 55,
+              "15": 56,
+            },
+          },
+        ],
+      },
+    });
+
+    const queued = await t.run(async (ctx) => {
+      const pending = await ctx.db.query("pendingGarminPushPayloads").collect();
+      const summaries = await ctx.db.query("dailySummaries").collect();
+      return { pending, summaries };
+    });
+
+    expect(queued.pending).toHaveLength(1);
+    expect(queued.pending[0]?.status).toBe("pending");
+    expect(queued.summaries).toHaveLength(0);
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(connectionId, {
+        accessToken: "garmin-token",
+        status: "active",
+      });
+    });
+
+    await expect(
+      t.action(internal.garminWebhooks.replayPendingForConnection, {
+        connectionId,
+      }),
+    ).resolves.toEqual({
+      failed: 0,
+      replayed: 1,
+      skipped: 0,
+    });
+
+    const replayed = await t.run(async (ctx) => {
+      const pending = await ctx.db.query("pendingGarminPushPayloads").collect();
+      const summaries = await ctx.db.query("dailySummaries").collect();
+      const dataPoints = await ctx.db.query("dataPoints").collect();
+      return { dataPoints, pending, summaries };
+    });
+
+    expect(replayed.pending[0]?.status).toBe("replayed");
+    expect(replayed.summaries.find((summary) => summary.category === "activity")).toMatchObject({
+      date: "2026-03-16",
+      totalSteps: 4321,
+    });
+    expect(replayed.dataPoints.filter((point) => point.seriesType === "heart_rate")).toHaveLength(
+      2,
+    );
   });
 
   it("ingests Garmin wellness feeds into events, data points, and summaries", async () => {
