@@ -245,7 +245,17 @@ describe("sdkPush", () => {
         model: "Pixel 9 Pro",
         softwareVersion: "Android 16",
         source: "health-connect",
+        appId: "com.thirdparty.writer",
       },
+      events: [
+        {
+          category: "workout",
+          type: "CYCLING_STATIONARY",
+          startDatetime: Date.parse("2026-03-18T08:00:00Z"),
+          endDatetime: Date.parse("2026-03-18T08:45:00Z"),
+          externalId: "hc-cycling-1",
+        },
+      ],
       dataPoints: [
         {
           seriesType: "hrv_rmssd",
@@ -271,6 +281,30 @@ describe("sdkPush", () => {
           value: 340,
           externalId: "hc-active-calories-1",
         },
+        {
+          seriesType: "POWER",
+          recordedAt: Date.parse("2026-03-18T12:03:00Z"),
+          value: 220,
+          externalId: "hc-power-1",
+        },
+        {
+          seriesType: "SPEED",
+          recordedAt: Date.parse("2026-03-18T12:04:00Z"),
+          value: 7.5,
+          externalId: "hc-speed-1",
+        },
+        {
+          seriesType: "CYCLING_PEDALING_CADENCE",
+          recordedAt: Date.parse("2026-03-18T12:05:00Z"),
+          value: 88,
+          externalId: "hc-cadence-1",
+        },
+        {
+          seriesType: "TOTAL_CALORIES_BURNED",
+          recordedAt: Date.parse("2026-03-18T12:06:00Z"),
+          value: 830,
+          externalId: "hc-total-calories-1",
+        },
       ],
       dailySummaries: [
         {
@@ -293,6 +327,22 @@ describe("sdkPush", () => {
       deviceModel: "Pixel 9 Pro",
       softwareVersion: "Android 16",
       source: "health-connect",
+      originalSourceName: "com.thirdparty.writer",
+    });
+
+    const events = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("events")
+        .withIndex("by_user_category_time", (idx) =>
+          idx.eq("userId", "user-3").eq("category", "workout"),
+        )
+        .collect();
+    });
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: "indoor_cycling",
+      externalId: "hc-cycling-1",
     });
 
     const points = await t.run(async (ctx) => {
@@ -304,9 +354,13 @@ describe("sdkPush", () => {
 
     expect(points.map((point) => point.seriesType).sort()).toEqual([
       "active_calories",
+      "cadence",
       "distance",
       "floors_climbed",
       "heart_rate_variability_rmssd",
+      "power",
+      "speed",
+      "total_calories",
     ]);
 
     const summaries = await t.run(async (ctx) => {

@@ -98,6 +98,10 @@ export interface SdkDeviceMetadata {
   source?: string;
   deviceType?: string;
   originalSourceName?: string;
+  appId?: string;
+  app_id?: string;
+  bundleIdentifier?: string;
+  bundle_identifier?: string;
 }
 
 export interface SdkSourceMetadata {
@@ -106,6 +110,10 @@ export interface SdkSourceMetadata {
   source?: string;
   deviceType?: string;
   originalSourceName?: string;
+  appId?: string;
+  app_id?: string;
+  bundleIdentifier?: string;
+  bundle_identifier?: string;
 }
 
 export interface SdkPushEvent extends SdkSourceMetadata {
@@ -157,6 +165,10 @@ export interface SdkPushSummary {
   category: string;
   source?: string;
   originalSourceName?: string;
+  appId?: string;
+  app_id?: string;
+  bundleIdentifier?: string;
+  bundle_identifier?: string;
   totalSteps?: number;
   totalCalories?: number;
   activeCalories?: number;
@@ -540,7 +552,7 @@ export const SERIES_TYPES = {
   peripheral_perfusion_index: { id: 27, unit: "score" },
   forced_vital_capacity: { id: 28, unit: "liters" },
   forced_expiratory_volume_1: { id: 29, unit: "liters" },
-  peak_expiratory_flow_rate: { id: 30, unit: "liters" },
+  peak_expiratory_flow_rate: { id: 30, unit: "L/min" },
 
   // Body Composition
   height: { id: 40, unit: "cm" },

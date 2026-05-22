@@ -13,6 +13,14 @@ const MAX_DATA_POINTS_PER_REQUEST = 10000;
 const MAX_SUMMARIES_PER_REQUEST = 1000;
 const SERIES_TYPE_ALIASES = {
   hrv_rmssd: "heart_rate_variability_rmssd",
+  POWER: "power",
+  power: "power",
+  SPEED: "speed",
+  speed: "speed",
+  CYCLING_PEDALING_CADENCE: "cadence",
+  cycling_pedaling_cadence: "cadence",
+  TOTAL_CALORIES_BURNED: "total_calories",
+  total_calories_burned: "total_calories",
 } as const;
 const validSeriesTypes = new Set(Object.keys(SERIES_TYPES));
 
@@ -22,6 +30,10 @@ const deviceMetadataValidator = v.object({
   source: v.optional(v.string()),
   deviceType: v.optional(v.string()),
   originalSourceName: v.optional(v.string()),
+  appId: v.optional(v.string()),
+  app_id: v.optional(v.string()),
+  bundleIdentifier: v.optional(v.string()),
+  bundle_identifier: v.optional(v.string()),
 });
 
 const sourceMetadataValidator = v.object({
@@ -30,6 +42,10 @@ const sourceMetadataValidator = v.object({
   source: v.optional(v.string()),
   deviceType: v.optional(v.string()),
   originalSourceName: v.optional(v.string()),
+  appId: v.optional(v.string()),
+  app_id: v.optional(v.string()),
+  bundleIdentifier: v.optional(v.string()),
+  bundle_identifier: v.optional(v.string()),
 });
 
 const sdkEventValidator = v.object({
@@ -76,6 +92,10 @@ const sdkEventValidator = v.object({
   source: v.optional(v.string()),
   deviceType: v.optional(v.string()),
   originalSourceName: v.optional(v.string()),
+  appId: v.optional(v.string()),
+  app_id: v.optional(v.string()),
+  bundleIdentifier: v.optional(v.string()),
+  bundle_identifier: v.optional(v.string()),
 });
 
 const sdkDataPointValidator = v.object({
@@ -88,6 +108,10 @@ const sdkDataPointValidator = v.object({
   source: v.optional(v.string()),
   deviceType: v.optional(v.string()),
   originalSourceName: v.optional(v.string()),
+  appId: v.optional(v.string()),
+  app_id: v.optional(v.string()),
+  bundleIdentifier: v.optional(v.string()),
+  bundle_identifier: v.optional(v.string()),
 });
 
 const sdkSummaryValidator = v.object({
@@ -95,6 +119,10 @@ const sdkSummaryValidator = v.object({
   category: v.string(),
   source: v.optional(v.string()),
   originalSourceName: v.optional(v.string()),
+  appId: v.optional(v.string()),
+  app_id: v.optional(v.string()),
+  bundleIdentifier: v.optional(v.string()),
+  bundle_identifier: v.optional(v.string()),
   totalSteps: v.optional(v.number()),
   totalCalories: v.optional(v.number()),
   activeCalories: v.optional(v.number()),
@@ -133,6 +161,10 @@ type SourceMetadata = {
   source?: string;
   deviceType?: string;
   originalSourceName?: string;
+  appId?: string;
+  app_id?: string;
+  bundleIdentifier?: string;
+  bundle_identifier?: string;
 };
 
 type DataSourceCache = Map<string, Id<"dataSources">>;
@@ -158,7 +190,17 @@ function resolveSourceMetadata(
     softwareVersion: item.softwareVersion ?? defaults?.softwareVersion,
     source: item.source ?? defaults?.source,
     deviceType: item.deviceType ?? defaults?.deviceType,
-    originalSourceName: item.originalSourceName ?? defaults?.originalSourceName,
+    originalSourceName:
+      item.originalSourceName ??
+      item.appId ??
+      item.app_id ??
+      item.bundleIdentifier ??
+      item.bundle_identifier ??
+      defaults?.originalSourceName,
+    appId: item.appId ?? defaults?.appId,
+    app_id: item.app_id ?? defaults?.app_id,
+    bundleIdentifier: item.bundleIdentifier ?? defaults?.bundleIdentifier,
+    bundle_identifier: item.bundle_identifier ?? defaults?.bundle_identifier,
   };
 }
 
@@ -245,6 +287,10 @@ export const ingestNormalizedPayload = action({
           source: event.source,
           deviceType: event.deviceType,
           originalSourceName: event.originalSourceName,
+          appId: event.appId,
+          app_id: event.app_id,
+          bundleIdentifier: event.bundleIdentifier,
+          bundle_identifier: event.bundle_identifier,
         });
         const dataSourceId = await ensureDataSource(
           ctx,
@@ -261,7 +307,7 @@ export const ingestNormalizedPayload = action({
           dataSourceId,
           userId: args.userId,
           category: event.category,
-          type: event.type,
+          type: event.category === "workout" ? normalizeWorkoutType(event.type) : event.type,
           sourceName: event.sourceName ?? defaultSourceName(args.provider),
           durationSeconds: event.durationSeconds,
           startDatetime: event.startDatetime,
@@ -322,6 +368,10 @@ export const ingestNormalizedPayload = action({
           source: point.source,
           deviceType: point.deviceType,
           originalSourceName: point.originalSourceName,
+          appId: point.appId,
+          app_id: point.app_id,
+          bundleIdentifier: point.bundleIdentifier,
+          bundle_identifier: point.bundle_identifier,
         });
         const dataSourceId = await ensureDataSource(
           ctx,
@@ -360,12 +410,27 @@ export const ingestNormalizedPayload = action({
     }
 
     for (const summary of summaries) {
+      const {
+        appId,
+        app_id,
+        bundleIdentifier,
+        bundle_identifier,
+        originalSourceName,
+        source,
+        ...summaryMetrics
+      } = summary;
       await ctx.runMutation(internal.summaries.upsert, {
         userId: args.userId,
         provider: args.provider,
-        ...summary,
-        source: summary.source ?? defaultMetadata.source,
-        originalSourceName: summary.originalSourceName ?? defaultMetadata.originalSourceName,
+        ...summaryMetrics,
+        source: source ?? defaultMetadata.source,
+        originalSourceName:
+          originalSourceName ??
+          appId ??
+          app_id ??
+          bundleIdentifier ??
+          bundle_identifier ??
+          defaultMetadata.originalSourceName,
       });
     }
 
@@ -390,6 +455,10 @@ function sourceMetadataFromDevice(
         source?: string;
         deviceType?: string;
         originalSourceName?: string;
+        appId?: string;
+        app_id?: string;
+        bundleIdentifier?: string;
+        bundle_identifier?: string;
       }
     | undefined,
 ): SourceMetadata | undefined {
@@ -399,7 +468,16 @@ function sourceMetadataFromDevice(
     softwareVersion: device.softwareVersion,
     source: device.source,
     deviceType: device.deviceType,
-    originalSourceName: device.originalSourceName,
+    originalSourceName:
+      device.originalSourceName ??
+      device.appId ??
+      device.app_id ??
+      device.bundleIdentifier ??
+      device.bundle_identifier,
+    appId: device.appId,
+    app_id: device.app_id,
+    bundleIdentifier: device.bundleIdentifier,
+    bundle_identifier: device.bundle_identifier,
   };
 }
 
@@ -410,6 +488,42 @@ function normalizeSeriesType(seriesType: string): string {
     throw new Error(`Unsupported series type "${seriesType}"`);
   }
   return normalized;
+}
+
+const SDK_WORKOUT_TYPE_ALIASES: Record<string, string> = {
+  cycling_stationary: "indoor_cycling",
+  boot_camp: "cardio_training",
+  calisthenics: "strength_training",
+  dancing: "dance",
+  exercise_class: "cardio_training",
+  football_american: "american_football",
+  football_australian: "football",
+  frisbee_disc: "disc_sports",
+  guided_breathing: "meditation",
+  ice_hockey: "hockey",
+  ice_skating: "ice_skating",
+  paddling: "paddling",
+  paragliding: "paragliding",
+  rock_climbing: "rock_climbing",
+  roller_hockey: "hockey",
+  rowing_machine: "rowing_machine",
+  running_treadmill: "treadmill",
+  scuba_diving: "diving",
+  skiing: "alpine_skiing",
+  snowshoeing: "snowshoeing",
+  stair_climbing_machine: "stair_climbing",
+  stretching: "stretching",
+  swimming_open_water: "open_water_swimming",
+  swimming_pool: "pool_swimming",
+  weightlifting: "strength_training",
+  wheelchair: "wheelchair",
+};
+
+function normalizeWorkoutType(type: string | undefined): string | undefined {
+  if (type === undefined) return undefined;
+  const normalized = type.trim().toLowerCase();
+  if (!normalized) return undefined;
+  return SDK_WORKOUT_TYPE_ALIASES[normalized] ?? normalized;
 }
 
 function assertPayloadWithinLimits(args: {
