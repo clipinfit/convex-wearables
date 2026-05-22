@@ -51,9 +51,9 @@ Within those provider families, source metadata can identify a device, source ap
 
 The component must not use `source`, `sourceName`, `originalSourceName`, device model, bundle id, or package id as the daily-summary provider key.
 
-## Open Wearables Comparison
+## Reference Implementation Comparison
 
-The sibling `../open-wearables` service stores raw rows through a provider-aware `data_source` table and computes daily activity/sleep summaries on read. Its summary service groups by date plus source/device, then filters to one result per date using priority.
+A related reference implementation stores raw rows through a provider-aware `data_source` table and computes daily activity/sleep summaries on read. Its summary service groups by date plus source/device, then filters to one result per date using priority.
 
 That pattern is not sufficient for this Convex component because:
 
