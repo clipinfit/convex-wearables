@@ -16,21 +16,31 @@ export const GARMIN_BACKFILL_TYPES = [
   "bodyComps",
   "hrv",
   "stressDetails",
-  "respiration",
+  "allDayRespiration",
   "pulseOx",
   "bloodPressures",
   "userMetrics",
   "skinTemp",
   "healthSnapshot",
-  "moveiq",
+  "moveIQActivities",
   "mct",
 ] as const;
+export const RECENT_GARMIN_BACKFILL_TYPES = ["dailies", "epochs", "sleeps"] as const;
 
 type GarminBackfillType = (typeof GARMIN_BACKFILL_TYPES)[number];
+
+export function getGarminBackfillTypesForJob(dataType: string | undefined): GarminBackfillType[] {
+  if (dataType === "recent") {
+    return [...RECENT_GARMIN_BACKFILL_TYPES];
+  }
+
+  return [...GARMIN_BACKFILL_TYPES];
+}
 
 export const requestGarminBackfill = internalMutation({
   args: {
     connectionId: v.id("connections"),
+    kind: v.optional(v.union(v.literal("full"), v.literal("recent"))),
     windowStart: v.number(),
     windowEnd: v.number(),
   },
@@ -66,7 +76,7 @@ export const requestGarminBackfill = internalMutation({
       connectionId: connection._id,
       userId: connection.userId,
       provider: "garmin",
-      dataType: "full",
+      dataType: args.kind ?? "full",
       status: "queued",
       startedAt: Date.now(),
       windowStart: args.windowStart,
@@ -186,7 +196,7 @@ export const runGarminBackfill = durableWorkflow.define({
 
     const completed = new Set<string>(job.completedDataTypes ?? []);
 
-    for (const dataType of GARMIN_BACKFILL_TYPES) {
+    for (const dataType of getGarminBackfillTypesForJob(job.dataType)) {
       if (completed.has(dataType)) {
         continue;
       }
@@ -293,7 +303,10 @@ export const handleGarminBackfillComplete = internalMutation({
 export const startGarminBackfill = action({
   args: {
     connectionId: v.id("connections"),
+    kind: v.optional(v.union(v.literal("full"), v.literal("recent"))),
     lookbackDays: v.optional(v.number()),
+    windowStart: v.optional(v.number()),
+    windowEnd: v.optional(v.number()),
     clientId: v.optional(v.string()),
     clientSecret: v.optional(v.string()),
   },
@@ -326,12 +339,26 @@ export const startGarminBackfill = action({
     }
 
     const now = Date.now();
+    if (
+      (args.windowStart !== undefined && args.windowEnd === undefined) ||
+      (args.windowStart === undefined && args.windowEnd !== undefined)
+    ) {
+      throw new Error("windowStart and windowEnd must be provided together");
+    }
+
     const lookbackMs = (args.lookbackDays ?? DEFAULT_LOOKBACK_DAYS) * 24 * 60 * 60 * 1000;
+    const windowStart = args.windowStart ?? now - lookbackMs;
+    const windowEnd = args.windowEnd ?? now;
+
+    if (windowStart >= windowEnd) {
+      throw new Error("windowStart must be before windowEnd");
+    }
 
     const result = await ctx.runMutation(internal.garminBackfill.requestGarminBackfill, {
       connectionId: args.connectionId,
-      windowStart: now - lookbackMs,
-      windowEnd: now,
+      kind: args.kind,
+      windowStart,
+      windowEnd,
     });
 
     return {

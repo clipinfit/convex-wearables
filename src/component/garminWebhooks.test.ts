@@ -1,7 +1,7 @@
 import { convexTest } from "convex-test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
-import { GARMIN_BACKFILL_TYPES } from "./garminBackfill";
+import { GARMIN_BACKFILL_TYPES, getGarminBackfillTypesForJob } from "./garminBackfill";
 import { triggerBackfill } from "./providers/garmin";
 import schema from "./schema";
 import { modules } from "./test.setup";
@@ -301,7 +301,7 @@ describe("garminWebhooks", () => {
             },
           },
         ],
-        respiration: [
+        allDayRespiration: [
           {
             userId: "garmin-user-1",
             summaryId: "resp-1",
@@ -364,7 +364,7 @@ describe("garminWebhooks", () => {
             respiration: 13.8,
           },
         ],
-        moveiq: [
+        moveIQActivities: [
           {
             userId: "garmin-user-1",
             summaryId: "moveiq-1",
@@ -413,6 +413,7 @@ describe("garminWebhooks", () => {
     });
 
     expect(result.connection?.scope).toBe("ACTIVITY_EXPORT HEALTH_EXPORT");
+    expect(result.connection?.lastSyncedAt).toEqual(expect.any(Number));
     expect(result.events).toHaveLength(4);
     expect(result.events.map((event) => event.type)).toEqual(
       expect.arrayContaining(["running", "cycling", "sleep_session", "moveiq_walking"]),
@@ -448,7 +449,7 @@ describe("garminWebhooks", () => {
       restingHeartRate: 48,
       avgStressLevel: 30,
       bodyBattery: 45,
-      hrvAvg: 55,
+      hrvRmssd: 55,
       spo2Avg: 97,
     });
     expect(bodySummary).toMatchObject({
@@ -476,7 +477,7 @@ describe("garminWebhooks", () => {
         "garmin_fitness_age",
         "garmin_stress_level",
         "heart_rate",
-        "heart_rate_variability_sdnn",
+        "heart_rate_variability_rmssd",
         "oxygen_saturation",
         "respiratory_rate",
         "resting_heart_rate",
@@ -722,16 +723,21 @@ describe("garminBackfill", () => {
         "bodyComps",
         "hrv",
         "stressDetails",
-        "respiration",
+        "allDayRespiration",
         "pulseOx",
         "bloodPressures",
         "userMetrics",
         "skinTemp",
         "healthSnapshot",
-        "moveiq",
+        "moveIQActivities",
         "mct",
       ]),
     );
+  });
+
+  it("limits recent Garmin backfills to freshness-critical feeds", () => {
+    expect(getGarminBackfillTypesForJob("recent")).toEqual(["dailies", "epochs", "sleeps"]);
+    expect(getGarminBackfillTypesForJob("full")).toEqual(GARMIN_BACKFILL_TYPES);
   });
 
   it("triggers extended Garmin backfill endpoints even when Garmin returns an empty 202 body", async () => {
@@ -750,5 +756,16 @@ describe("garminBackfill", () => {
       Authorization: "Bearer garmin-token",
       Accept: "application/json",
     });
+  });
+
+  it("maps legacy Garmin backfill aliases to Garmin's current endpoint names", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+
+    await triggerBackfill("garmin-token", "respiration", 100, 200);
+    await triggerBackfill("garmin-token", "moveiq", 100, 200);
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/backfill/allDayRespiration?");
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("/backfill/moveIQActivities?");
   });
 });

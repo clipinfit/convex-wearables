@@ -525,9 +525,11 @@ export const runConnectionSync = durableWorkflow.define({
       }
     }
 
-    await step.runMutation(internal.connections.markSynced, {
-      connectionId: connection._id,
-    });
+    if (processed > 0) {
+      await step.runMutation(internal.connections.markSynced, {
+        connectionId: connection._id,
+      });
+    }
 
     return { recordsProcessed: processed };
   },

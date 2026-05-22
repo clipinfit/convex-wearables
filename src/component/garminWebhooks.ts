@@ -244,8 +244,12 @@ export const processPushPayload = action({
       }
     }
 
-    if (payload.respiration?.length) {
-      for (const respiration of payload.respiration) {
+    const respirationEntries =
+      payload.allDayRespiration && payload.allDayRespiration.length > 0
+        ? payload.allDayRespiration
+        : payload.respiration;
+    if (respirationEntries?.length) {
+      for (const respiration of respirationEntries) {
         const connection = await resolveConnection(ctx, respiration.userId);
         if (!connection) continue;
 
@@ -257,12 +261,14 @@ export const processPushPayload = action({
           dataSourceId,
           normalizeRespirationDataPoints(respiration),
         );
-        addSignal(signalBuckets, "respiration", connection._id);
+        addSignal(signalBuckets, "allDayRespiration", connection._id);
       }
     }
 
-    if (payload.pulseOx?.length) {
-      for (const pulseOx of payload.pulseOx) {
+    const pulseOxEntries =
+      payload.pulseOx && payload.pulseOx.length > 0 ? payload.pulseOx : payload.pulseox;
+    if (pulseOxEntries?.length) {
+      for (const pulseOx of pulseOxEntries) {
         const connection = await resolveConnection(ctx, pulseOx.userId);
         if (!connection) continue;
 
@@ -344,8 +350,12 @@ export const processPushPayload = action({
       }
     }
 
-    if (payload.moveiq?.length) {
-      for (const moveIQ of payload.moveiq) {
+    const moveIQEntries =
+      payload.moveIQActivities && payload.moveIQActivities.length > 0
+        ? payload.moveIQActivities
+        : payload.moveiq;
+    if (moveIQEntries?.length) {
+      for (const moveIQ of moveIQEntries) {
         const connection = await resolveConnection(ctx, moveIQ.userId);
         if (!connection) continue;
 
@@ -365,7 +375,7 @@ export const processPushPayload = action({
           externalId: event.externalId,
         });
 
-        addSignal(signalBuckets, "moveiq", connection._id);
+        addSignal(signalBuckets, "moveIQActivities", connection._id);
       }
     }
 
@@ -442,6 +452,15 @@ export const processPushPayload = action({
           itemCount,
         });
       }
+    }
+
+    const syncedConnectionIds = new Set(
+      [...signalBuckets.values()].flatMap((connectionIds) => [...connectionIds]),
+    );
+    for (const connectionId of syncedConnectionIds) {
+      await ctx.runMutation(internal.connections.markSynced, {
+        connectionId: connectionId as Id<"connections">,
+      });
     }
 
     return null;
@@ -744,10 +763,10 @@ function getPayloadItemCount(payload: GarminPushPayload, dataType: string): numb
       return payload.hrv?.length;
     case "stressDetails":
       return payload.stressDetails?.length;
-    case "respiration":
-      return payload.respiration?.length;
+    case "allDayRespiration":
+      return payload.allDayRespiration?.length ?? payload.respiration?.length;
     case "pulseOx":
-      return payload.pulseOx?.length;
+      return payload.pulseOx?.length ?? payload.pulseox?.length;
     case "bloodPressures":
       return payload.bloodPressures?.length;
     case "userMetrics":
@@ -756,8 +775,8 @@ function getPayloadItemCount(payload: GarminPushPayload, dataType: string): numb
       return payload.skinTemp?.length;
     case "healthSnapshot":
       return payload.healthSnapshot?.length;
-    case "moveiq":
-      return payload.moveiq?.length;
+    case "moveIQActivities":
+      return payload.moveIQActivities?.length ?? payload.moveiq?.length;
     case "mct":
       return payload.menstrualCycleTracking && payload.menstrualCycleTracking.length > 0
         ? payload.menstrualCycleTracking.length

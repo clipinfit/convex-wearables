@@ -447,12 +447,21 @@ export class WearablesClient {
    */
   async startGarminBackfill(
     ctx: ActionRunner,
-    args: { connectionId: string; lookbackDays?: number },
+    args: {
+      connectionId: string;
+      kind?: "full" | "recent";
+      lookbackDays?: number;
+      windowStart?: number;
+      windowEnd?: number;
+    },
   ): Promise<{ backfillJobId: string; workflowId: string; deduped: boolean }> {
     const credentials = this.requireProviderCredentials("garmin");
     return await ctx.runAction(this.component.garminBackfill.startGarminBackfill, {
       connectionId: args.connectionId,
+      kind: args.kind,
       lookbackDays: args.lookbackDays,
+      windowStart: args.windowStart,
+      windowEnd: args.windowEnd,
       clientId: credentials.clientId,
       clientSecret: credentials.clientSecret,
     });
@@ -789,12 +798,15 @@ function summarizeGarminPayload(payload: unknown) {
     bodyComps: getArrayLength(payload.bodyComps),
     hrv: getArrayLength(payload.hrv),
     stressDetails: getArrayLength(payload.stressDetails),
+    allDayRespiration: getArrayLength(payload.allDayRespiration),
     respiration: getArrayLength(payload.respiration),
     pulseOx: getArrayLength(payload.pulseOx),
+    pulseox: getArrayLength(payload.pulseox),
     bloodPressures: getArrayLength(payload.bloodPressures),
     userMetrics: getArrayLength(payload.userMetrics),
     skinTemp: getArrayLength(payload.skinTemp),
     healthSnapshot: getArrayLength(payload.healthSnapshot),
+    moveIQActivities: getArrayLength(payload.moveIQActivities),
     moveiq: getArrayLength(payload.moveiq),
     menstrualCycleTracking: getArrayLength(payload.menstrualCycleTracking),
     mct: getArrayLength(payload.mct),

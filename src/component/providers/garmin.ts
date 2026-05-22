@@ -148,6 +148,7 @@ export interface GarminHrv {
   userId: string;
   summaryId?: string;
   startTimeInSeconds: number;
+  startTimeOffsetInSeconds?: number;
   calendarDate?: string;
   lastNightAvg?: number;
   hrvValues?: Record<string, number>;
@@ -258,12 +259,15 @@ export interface GarminPushPayload {
   bodyComps?: GarminBodyComp[];
   hrv?: GarminHrv[];
   stressDetails?: GarminStressDetails[];
+  allDayRespiration?: GarminRespiration[];
   respiration?: GarminRespiration[];
   pulseOx?: GarminPulseOx[];
+  pulseox?: GarminPulseOx[];
   bloodPressures?: GarminBloodPressure[];
   userMetrics?: GarminUserMetrics[];
   skinTemp?: GarminSkinTemp[];
   healthSnapshot?: GarminHealthSnapshot[];
+  moveIQActivities?: GarminMoveIQ[];
   moveiq?: GarminMoveIQ[];
   menstrualCycleTracking?: GarminMCTSummary[];
   mct?: GarminMCTSummary[];
@@ -280,6 +284,13 @@ function isoDateFromCalendarDate(
   fallbackTimestampMs: number,
 ): string {
   return calendarDate ?? isoDateFromTimestamp(fallbackTimestampMs);
+}
+
+function isoDateFromTimestampWithOffset(timestampMs: number, offsetSeconds?: number): string {
+  if (offsetSeconds === undefined) {
+    return isoDateFromTimestamp(timestampMs);
+  }
+  return isoDateFromTimestamp(timestampMs + offsetSeconds * 1000);
 }
 
 function calendarDateToMiddayTimestamp(calendarDate: string | undefined): number | null {
@@ -541,8 +552,9 @@ export function normalizeSleep(sleep: GarminSleep): NormalizedEvent {
 }
 
 export function normalizeSleepSummary(sleep: GarminSleep): NormalizedDailySummary {
+  const endMs = (sleep.startTimeInSeconds + sleep.durationInSeconds) * 1000;
   return {
-    date: isoDateFromTimestamp(sleep.startTimeInSeconds * 1000),
+    date: isoDateFromTimestampWithOffset(endMs, sleep.startTimeOffsetInSeconds),
     category: "sleep",
     sleepDurationMinutes: Math.floor(sleep.durationInSeconds / 60),
     sleepEfficiency: sleep.overallSleepScore?.value,
@@ -734,7 +746,7 @@ export function normalizeHrvDataPoints(hrv: GarminHrv): NormalizedDataPoint[] {
   const points: NormalizedDataPoint[] = [];
   if (hrv.lastNightAvg != null) {
     points.push({
-      seriesType: "heart_rate_variability_sdnn",
+      seriesType: "heart_rate_variability_rmssd",
       recordedAt: hrv.startTimeInSeconds * 1000,
       value: hrv.lastNightAvg,
       externalId: hrv.summaryId,
@@ -745,7 +757,7 @@ export function normalizeHrvDataPoints(hrv: GarminHrv): NormalizedDataPoint[] {
     ...buildOffsetDataPoints(
       hrv.hrvValues,
       hrv.startTimeInSeconds,
-      "heart_rate_variability_sdnn",
+      "heart_rate_variability_rmssd",
       hrv.summaryId,
     ),
   );
@@ -761,7 +773,7 @@ export function normalizeHrvSummary(hrv: GarminHrv): NormalizedDailySummary | nu
   return {
     date: isoDateFromCalendarDate(hrv.calendarDate, hrv.startTimeInSeconds * 1000),
     category: "recovery",
-    hrvAvg: hrv.lastNightAvg,
+    hrvRmssd: hrv.lastNightAvg,
   };
 }
 
@@ -1138,6 +1150,7 @@ export async function triggerBackfill(
   startTimeSeconds: number,
   endTimeSeconds: number,
 ): Promise<void> {
+  const endpointDataType = normalizeBackfillDataType(dataType);
   const validTypes = [
     "activities",
     "activityDetails",
@@ -1147,23 +1160,34 @@ export async function triggerBackfill(
     "bodyComps",
     "hrv",
     "stressDetails",
-    "respiration",
+    "allDayRespiration",
     "pulseOx",
     "bloodPressures",
     "userMetrics",
     "skinTemp",
     "healthSnapshot",
-    "moveiq",
+    "moveIQActivities",
     "mct",
   ];
-  if (!validTypes.includes(dataType)) {
+  if (!validTypes.includes(endpointDataType)) {
     throw new Error(`Invalid backfill data type: ${dataType}`);
   }
 
-  await makeAuthenticatedRequest(API_BASE, `/wellness-api/rest/backfill/${dataType}`, accessToken, {
-    params: {
-      summaryStartTimeInSeconds: String(startTimeSeconds),
-      summaryEndTimeInSeconds: String(endTimeSeconds),
+  await makeAuthenticatedRequest(
+    API_BASE,
+    `/wellness-api/rest/backfill/${endpointDataType}`,
+    accessToken,
+    {
+      params: {
+        summaryStartTimeInSeconds: String(startTimeSeconds),
+        summaryEndTimeInSeconds: String(endTimeSeconds),
+      },
     },
-  });
+  );
+}
+
+function normalizeBackfillDataType(dataType: string): string {
+  if (dataType === "respiration") return "allDayRespiration";
+  if (dataType === "moveiq") return "moveIQActivities";
+  return dataType;
 }
