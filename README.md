@@ -302,8 +302,34 @@ category and date range.
 |--------|-------------|
 | `getProviderCredentials(provider)` | Get credentials for a provider |
 | `getConfiguredProviders()` | List all configured providers |
+| `getProviderCapabilities(provider)` | Get static sync/delivery capabilities for one provider |
+| `getProviderCapabilityInfo(provider)` | Get capabilities plus derived UI-friendly flags |
+| `getAllProviderCapabilityInfo()` | Get capability info for every supported provider |
 | `replaceTimeSeriesPolicyConfiguration(ctx, { defaultRules, presets?, maintenance? })` | Replace the persisted time-series policy configuration |
 | `setUserTimeSeriesPolicyPreset(ctx, { userId, presetKey })` | Assign or clear a user-specific preset |
+
+### Provider Capabilities
+
+Provider capabilities are static metadata that describe how each provider delivers data.
+They are additive client-side helpers; they do not change sync behavior or require a
+schema migration.
+
+```ts
+import {
+  getProviderCapabilityInfo,
+  supportsBackfill,
+  supportsManualSync,
+} from "@clipin/convex-wearables";
+
+const garmin = getProviderCapabilityInfo("garmin");
+console.log(garmin.defaultLiveSyncMode); // "webhook"
+console.log(supportsManualSync("garmin")); // false
+console.log(supportsBackfill("garmin")); // true
+```
+
+Use these helpers in host apps to decide whether to show cloud sync, mobile SDK
+sync, webhook status, or historical backfill controls without hardcoding provider
+names in app UI.
 
 ## Time-Series Storage Policy
 
@@ -838,13 +864,13 @@ The SDK payload also accepts `device` and `dailySummaries` as compatibility alia
 | Provider | Integration mode | Current support | Status |
 |----------|------------------|-----------------|--------|
 | Strava | OAuth pull sync + webhook-triggered resync | Workouts, connection lifecycle, sync jobs | Implemented |
-| Garmin | OAuth pull sync + push webhooks + durable backfill | Workouts, sleep, time-series, summaries | Implemented |
+| Garmin | OAuth connection + push webhooks + durable backfill | Workouts, sleep, time-series, summaries | Implemented |
 | Apple Health | Normalized SDK push | Workouts, sleep, time-series, summaries from your mobile app | Implemented via SDK |
 | Samsung Health | Normalized SDK push | Workouts, sleep, time-series, summaries from your mobile app | Implemented via SDK |
 | Google Health Connect | Normalized SDK push | Workouts, sleep, time-series, summaries from your mobile app | Implemented via SDK |
-| Whoop | Provider scaffolding | Not yet wired to data sync | Planned |
-| Polar | Provider scaffolding | Not yet wired to data sync | Planned |
-| Suunto | Provider scaffolding | Not yet wired to data sync | Planned |
+| Whoop | OAuth pull sync | Workouts, sleep, recovery, body data | Implemented |
+| Polar | OAuth pull sync | Workouts and provider data sync | Implemented |
+| Suunto | OAuth pull sync | Workouts, sleep, recovery, activity data | Implemented |
 
 SDK-push providers rely on your app to send normalized payloads. The component stores and queries that data, but it does not yet fetch Apple Health, Samsung Health, or Google Health Connect data directly from vendor APIs.
 

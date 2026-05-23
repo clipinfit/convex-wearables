@@ -30,6 +30,57 @@ export type DurationInput = string | number;
 
 export type TimeSeriesRollupAggregation = "avg" | "min" | "max" | "last" | "count";
 
+export type LiveSyncMode = "pull" | "webhook";
+
+export interface ProviderCapabilities {
+  /**
+   * Provider exposes a REST API that can be polled for historical or recent data.
+   */
+  restPull: boolean;
+  /**
+   * Data arrives through the normalized mobile SDK push endpoint.
+   */
+  clientSdk: boolean;
+  /**
+   * Data arrives as a file import rather than provider API calls or SDK pushes.
+   */
+  fileImport: boolean;
+  /**
+   * We request a provider export/backfill and the provider calls back asynchronously.
+   */
+  webhookCallback: boolean;
+  /**
+   * Provider pushes complete data payloads inline to the component webhook.
+   */
+  webhookStream: boolean;
+  /**
+   * Provider sends lightweight notifications and data must be fetched separately.
+   */
+  webhookPing: boolean;
+  /**
+   * Provider supports programmatic webhook subscription registration.
+   */
+  webhookRegistrationApi: boolean;
+  /**
+   * Provider returns or requires a stored inbound webhook signing secret.
+   */
+  webhookInboundSecret: boolean;
+  /**
+   * Known historical sync lookback limit in days. Null means no known component-enforced limit.
+   */
+  maxHistoricalDays: number | null;
+}
+
+export interface ProviderCapabilityInfo extends ProviderCapabilities {
+  provider: ProviderName;
+  implemented: boolean;
+  liveSyncConfigurable: boolean;
+  defaultLiveSyncMode: LiveSyncMode | null;
+  supportsManualSync: boolean;
+  supportsHistoricalSync: boolean;
+  supportsBackfill: boolean;
+}
+
 // ---------------------------------------------------------------------------
 // Provider configuration (passed by app)
 // ---------------------------------------------------------------------------

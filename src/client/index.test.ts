@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  getDefaultLiveSyncMode,
+  getProviderCapabilities,
+  getProviderCapabilityInfo,
   getSdkSyncPath,
   getSdkSyncUrl,
   oauthCallback,
@@ -146,6 +149,44 @@ describe("package exports", () => {
         },
       },
     ]);
+  });
+
+  it("exposes additive provider capability metadata", () => {
+    const client = new WearablesClient({} as WearablesComponent, { providers: {} });
+
+    expect(getProviderCapabilities("garmin")).toMatchObject({
+      restPull: false,
+      webhookCallback: true,
+      webhookStream: true,
+      maxHistoricalDays: 30,
+    });
+    expect(getProviderCapabilityInfo("garmin")).toMatchObject({
+      defaultLiveSyncMode: "webhook",
+      liveSyncConfigurable: false,
+      supportsManualSync: false,
+      supportsHistoricalSync: true,
+      supportsBackfill: true,
+    });
+    expect(getProviderCapabilityInfo("strava")).toMatchObject({
+      restPull: true,
+      webhookPing: true,
+      defaultLiveSyncMode: "pull",
+      liveSyncConfigurable: true,
+      supportsManualSync: true,
+    });
+    expect(getProviderCapabilityInfo("google")).toMatchObject({
+      clientSdk: true,
+      defaultLiveSyncMode: null,
+      supportsManualSync: false,
+      supportsHistoricalSync: false,
+    });
+    expect(getDefaultLiveSyncMode("whoop")).toBe("pull");
+    expect(client.getProviderCapabilityInfo("apple")).toMatchObject({
+      provider: "apple",
+      clientSdk: true,
+      implemented: true,
+    });
+    expect(client.getAllProviderCapabilityInfo()).toHaveLength(8);
   });
 });
 

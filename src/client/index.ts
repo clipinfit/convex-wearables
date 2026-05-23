@@ -15,6 +15,11 @@ import type {
 } from "convex/server";
 import { httpActionGeneric } from "convex/server";
 import type { ComponentApi } from "../component/_generated/component.js";
+import {
+  getAllProviderCapabilityInfo as getAllProviderCapabilityInfoValue,
+  getProviderCapabilities as getProviderCapabilitiesValue,
+  getProviderCapabilityInfo as getProviderCapabilityInfoValue,
+} from "./providerCapabilities.js";
 import type {
   AggregateStats,
   BackfillJob,
@@ -26,6 +31,9 @@ import type {
   EventsPage,
   GarminRoutesConfig,
   HealthEvent,
+  LiveSyncMode,
+  ProviderCapabilities,
+  ProviderCapabilityInfo,
   ProviderCredentials,
   ProviderName,
   RegisterRoutesConfig,
@@ -51,6 +59,18 @@ export {
   stravaWebhookEvent,
   stravaWebhookVerify,
 } from "../component/httpHandlers.js";
+export {
+  createProviderCapabilities,
+  getAllProviderCapabilityInfo,
+  getDefaultLiveSyncMode,
+  getProviderCapabilities,
+  getProviderCapabilityInfo,
+  isLiveSyncConfigurable,
+  PROVIDER_NAMES,
+  supportsBackfill,
+  supportsHistoricalSync,
+  supportsManualSync,
+} from "./providerCapabilities.js";
 export type { SeriesType, SleepEvent, SleepStage, WorkoutEvent } from "./types.js";
 export { SERIES_TYPES } from "./types.js";
 // Re-export types for consumers
@@ -65,6 +85,9 @@ export type {
   EventsPage,
   GarminRoutesConfig,
   HealthEvent,
+  LiveSyncMode,
+  ProviderCapabilities,
+  ProviderCapabilityInfo,
   ProviderCredentials,
   ProviderName,
   RegisterRoutesConfig,
@@ -138,6 +161,27 @@ export class WearablesClient {
   constructor(component: WearablesComponent, config: WearablesConfig) {
     this.component = component;
     this.config = config;
+  }
+
+  /**
+   * Get static delivery/sync capabilities for a provider.
+   */
+  getProviderCapabilities(provider: ProviderName): ProviderCapabilities {
+    return getProviderCapabilitiesValue(provider);
+  }
+
+  /**
+   * Get static provider capabilities plus derived UI-friendly flags.
+   */
+  getProviderCapabilityInfo(provider: ProviderName): ProviderCapabilityInfo {
+    return getProviderCapabilityInfoValue(provider);
+  }
+
+  /**
+   * Get static capability info for every supported provider.
+   */
+  getAllProviderCapabilityInfo(): ProviderCapabilityInfo[] {
+    return getAllProviderCapabilityInfoValue();
   }
 
   // -----------------------------------------------------------------------
