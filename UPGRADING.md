@@ -42,6 +42,10 @@ Generation accepts an optional `asOf` timestamp, rejects ranges ending after
 that local day, and does not write later events or time-series points. Hosts can
 use the `sedentary` profile to exercise partial-score UI states.
 
+Version `0.6.0` adds the optional `showcase` profile. It creates seeded
+calendar weeks with four perfect target days, two days scoring from 80 through
+90, and one day below 70. Existing profiles and stored data are unchanged.
+
 ## Provider-aware daily summaries
 
 The provider-aware daily summaries release adds provider provenance to

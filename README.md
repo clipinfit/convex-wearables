@@ -332,7 +332,10 @@ Generated events and time-series points never extend past `asOf`, which defaults
 to generation time. Prior calendar days stay stable when a range grows.
 `replaceExisting` atomically replaces that user's previous synthetic
 integration. Use `profile: "sedentary"` for a deterministic partial-score UI
-state. Garmin and other real connections coexist because generated rows use
+state. Use `profile: "showcase"` for a seeded physically active user: each
+Monday-to-Sunday block contains four perfect target days, two days in the
+80–90 range, and one day below 70 when scored against 3,500 steps, 350 active
+calories, and seven hours of sleep. Garmin and other real connections coexist because generated rows use
 `provider: "synthetic"`, with a normal connection and a `SynthDevice` data
 source. The provider advertises generated-data capability but no OAuth, pull,
 webhook, or backfill capability, so existing sync routing ignores it naturally.

@@ -70,6 +70,11 @@ keeps steps, active calories, and sleep below the default UI goals so partial
 score states can be exercised. Generated values are plausible UI fixtures, not
 clinically meaningful data.
 
+The `showcase` profile represents a good-looking physically active test user.
+Every seeded Monday-to-Sunday block contains four perfect target days, two days
+scoring from 80 through 90, and one day below 70. Positions vary
+deterministically by user, calendar week, and seed.
+
 ## Replacement and cleanup
 
 Seeding fails if a synthetic connection already exists unless
@@ -90,6 +95,5 @@ inside OAuth, connection, data-source, summary, or backfill code.
 
 ## Versioning
 
-Recommended future version: `0.5.0`. Adding a provider literal and public
-functions is an additive pre-1.0 minor change. Existing component data remains
-valid and no stored-data migration is required.
+Version `0.5.0` introduced the provider. The `showcase` profile is an additive
+profile option and requires no stored-data migration.

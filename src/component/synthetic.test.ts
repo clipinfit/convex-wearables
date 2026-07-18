@@ -306,6 +306,39 @@ describe("synthetic provider", () => {
     expect(sleep?.sleepDurationMinutes).toBeLessThan(420);
   });
 
+  it("builds deterministic showcase weeks with perfect, strong, and low score days", () => {
+    const plan = buildSyntheticDataPlan({
+      userId: "user-1",
+      startDate: "2026-07-06",
+      endDate: "2026-07-19",
+      timezone: "Europe/Madrid",
+      asOf: Date.parse("2026-07-20T12:00:00.000Z"),
+      profile: "showcase",
+      seed: "good-looking-active-user",
+    });
+
+    const scores = plan.dates.map((date) => {
+      const activity = plan.summaries.find(
+        (summary) => summary.date === date && summary.category === "activity",
+      );
+      const sleep = plan.summaries.find(
+        (summary) => summary.date === date && summary.category === "sleep",
+      );
+      const factors = [
+        (activity?.activeCalories ?? 0) / 350,
+        (activity?.totalSteps ?? 0) / 3_500,
+        (sleep?.sleepDurationMinutes ?? 0) / 420,
+      ].map((value) => Math.min(value, 1));
+      return Math.round((factors.reduce((sum, value) => sum + value, 0) / factors.length) * 100);
+    });
+
+    for (const week of [scores.slice(0, 7), scores.slice(7, 14)]) {
+      expect(week.filter((score) => score === 100)).toHaveLength(4);
+      expect(week.filter((score) => score >= 80 && score <= 90)).toHaveLength(2);
+      expect(week.filter((score) => score < 70)).toHaveLength(1);
+    }
+  });
+
   it("validates timezone, calendar dates, and the 31-day generation limit", () => {
     const base = {
       userId: "user-1",

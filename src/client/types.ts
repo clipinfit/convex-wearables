@@ -294,7 +294,7 @@ export type SdkSyncPayload = SdkPushPayload;
 // Synthetic provider
 // ---------------------------------------------------------------------------
 
-export type SyntheticDataProfile = "active" | "sedentary" | "recovery" | "mixed";
+export type SyntheticDataProfile = "active" | "sedentary" | "recovery" | "mixed" | "showcase";
 
 export interface SeedSyntheticDataInput {
   userId: string;

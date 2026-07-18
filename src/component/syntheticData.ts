@@ -1,4 +1,7 @@
-export type SyntheticProfile = "active" | "sedentary" | "recovery" | "mixed";
+export type SyntheticProfile = "active" | "sedentary" | "recovery" | "mixed" | "showcase";
+
+type DailySyntheticProfile = Exclude<SyntheticProfile, "mixed" | "showcase">;
+type ShowcaseScoreTier = "perfect" | "strong" | "low";
 
 export type SyntheticSummary = {
   date: string;
@@ -183,18 +186,46 @@ function zonedDateTimeToTimestamp(date: string, timezone: string, hour: number, 
   return guess;
 }
 
-function profileForDay(
-  profile: SyntheticProfile,
-  dayIndex: number,
-): Exclude<SyntheticProfile, "mixed"> {
+function profileForDay(profile: SyntheticProfile, dayIndex: number): DailySyntheticProfile {
+  if (profile === "showcase") return "active";
   if (profile !== "mixed") return profile;
   return (["active", "recovery", "active", "sedentary"] as const)[dayIndex % 4];
 }
 
-function activityFactor(profile: Exclude<SyntheticProfile, "mixed">) {
+function activityFactor(profile: DailySyntheticProfile) {
   if (profile === "active") return 1.15;
   if (profile === "sedentary") return 0.55;
   return 0.75;
+}
+
+function getIsoWeekStart(date: string) {
+  const weekday = new Date(parseIsoDate(date)).getUTCDay();
+  return addDays(date, -(weekday === 0 ? 6 : weekday - 1));
+}
+
+function getShowcaseScoreTier(args: {
+  date: string;
+  seed: string;
+  userId: string;
+}): ShowcaseScoreTier {
+  const weekStart = getIsoWeekStart(args.date);
+  const weekdayIndex = Math.round((parseIsoDate(args.date) - parseIsoDate(weekStart)) / DAY_IN_MS);
+  const weekdays = [0, 1, 2, 3, 4, 5, 6];
+  const random = mulberry32(hashString([args.userId, weekStart, args.seed, "showcase"].join(":")));
+
+  for (let index = weekdays.length - 1; index > 0; index -= 1) {
+    const swapIndex = randomInteger(random, 0, index);
+    [weekdays[index], weekdays[swapIndex]] = [
+      weekdays[swapIndex] ?? index,
+      weekdays[index] ?? swapIndex,
+    ];
+  }
+
+  if (weekdayIndex === weekdays[0]) return "low";
+  if (weekdayIndex === weekdays[1] || weekdayIndex === weekdays[2]) {
+    return "strong";
+  }
+  return "perfect";
 }
 
 function buildSleepStages(args: {
@@ -260,16 +291,41 @@ export function buildSyntheticDataPlan(args: {
     const random = mulberry32(hashString([args.userId, date, args.seed].join(":")));
     const dailyProfile = profileForDay(args.profile, dayOrdinal);
     const factor = activityFactor(dailyProfile);
-    const steps =
-      dailyProfile === "sedentary"
+    const showcaseTier =
+      args.profile === "showcase"
+        ? getShowcaseScoreTier({
+            date,
+            seed: args.seed,
+            userId: args.userId,
+          })
+        : null;
+    const showcaseScore =
+      showcaseTier === "strong"
+        ? randomInteger(random, 82, 89)
+        : showcaseTier === "low"
+          ? randomInteger(random, 62, 68)
+          : showcaseTier === "perfect"
+            ? 100
+            : null;
+    const steps = showcaseScore
+      ? showcaseTier === "perfect"
+        ? randomInteger(random, 7_000, 12_500)
+        : Math.round(3_500 * (showcaseScore / 100))
+      : dailyProfile === "sedentary"
         ? randomInteger(random, 2_450, 3_400)
         : Math.round(randomInteger(random, 6_500, 12_500) * factor);
-    const activeCalories =
-      dailyProfile === "sedentary"
+    const activeCalories = showcaseScore
+      ? showcaseTier === "perfect"
+        ? randomInteger(random, 420, 720)
+        : Math.round(350 * (showcaseScore / 100))
+      : dailyProfile === "sedentary"
         ? randomInteger(random, 255, 340)
         : Math.round(randomInteger(random, 350, 650) * factor);
-    const activeMinutes =
-      dailyProfile === "sedentary"
+    const activeMinutes = showcaseScore
+      ? showcaseTier === "perfect"
+        ? randomInteger(random, 55, 105)
+        : Math.round(60 * (showcaseScore / 100))
+      : dailyProfile === "sedentary"
         ? randomInteger(random, 20, 42)
         : Math.round(randomInteger(random, 45, 90) * factor);
     const restingHeartRate =
@@ -285,8 +341,11 @@ export function buildSyntheticDataPlan(args: {
     const bodyBattery = randomInteger(random, 58, 94);
     const stress = randomInteger(random, 20, 48);
     const spo2 = Math.round(randomBetween(random, 95.5, 99) * 10) / 10;
-    const totalSleepMinutes =
-      dailyProfile === "sedentary"
+    const totalSleepMinutes = showcaseScore
+      ? showcaseTier === "perfect"
+        ? randomInteger(random, 425, 500)
+        : Math.round(420 * (showcaseScore / 100))
+      : dailyProfile === "sedentary"
         ? randomInteger(random, 355, 410)
         : dailyProfile === "recovery"
           ? randomInteger(random, 455, 525)

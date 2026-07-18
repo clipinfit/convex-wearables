@@ -12,6 +12,7 @@ const syntheticProfile = v.union(
   v.literal("sedentary"),
   v.literal("recovery"),
   v.literal("mixed"),
+  v.literal("showcase"),
 );
 
 const clearCountsValidator = v.object({
