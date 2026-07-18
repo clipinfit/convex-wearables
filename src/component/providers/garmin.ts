@@ -168,6 +168,7 @@ export interface GarminRespiration {
   startTimeInSeconds: number;
   calendarDate?: string;
   avgWakingRespirationValue?: number;
+  timeOffsetEpochToBreaths?: Record<string, number>;
   timeOffsetRespirationRateValues?: Record<string, number>;
   timeOffsetRespirationValues?: Record<string, number>;
 }
@@ -184,6 +185,7 @@ export interface GarminPulseOx {
 export interface GarminBloodPressure {
   userId: string;
   summaryId?: string;
+  measurementTimeInSeconds?: number;
   measurementTimestampGMT?: number;
   startTimeInSeconds?: number;
   systolic?: number;
@@ -817,7 +819,9 @@ export function normalizeRespirationDataPoints(
 
   points.push(
     ...buildOffsetDataPoints(
-      respiration.timeOffsetRespirationRateValues ?? respiration.timeOffsetRespirationValues,
+      respiration.timeOffsetEpochToBreaths ??
+        respiration.timeOffsetRespirationRateValues ??
+        respiration.timeOffsetRespirationValues,
       respiration.startTimeInSeconds,
       "respiratory_rate",
       respiration.summaryId,
@@ -870,7 +874,9 @@ export function normalizeBloodPressureDataPoints(
   bloodPressure: GarminBloodPressure,
 ): NormalizedDataPoint[] {
   const measurementSeconds =
-    bloodPressure.measurementTimestampGMT ?? bloodPressure.startTimeInSeconds;
+    bloodPressure.measurementTimeInSeconds ??
+    bloodPressure.measurementTimestampGMT ??
+    bloodPressure.startTimeInSeconds;
   if (!measurementSeconds) {
     return [];
   }

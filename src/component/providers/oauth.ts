@@ -6,6 +6,35 @@
 
 import type { OAuthProviderConfig, OAuthTokenResponse } from "./types";
 
+export type ProviderApiOperation = "token_exchange" | "token_refresh" | "api_request";
+
+/**
+ * Structured provider failure used to make connection lifecycle decisions
+ * without parsing error-message text.
+ */
+export class ProviderApiError extends Error {
+  readonly operation: ProviderApiOperation;
+  readonly retryable: boolean;
+  readonly status: number;
+
+  constructor(args: {
+    message: string;
+    operation: ProviderApiOperation;
+    status: number;
+    retryable?: boolean;
+  }) {
+    super(args.message);
+    this.name = "ProviderApiError";
+    this.operation = args.operation;
+    this.status = args.status;
+    this.retryable = args.retryable ?? (args.status === 429 || args.status >= 500);
+  }
+}
+
+export function isProviderApiError(error: unknown): error is ProviderApiError {
+  return error instanceof ProviderApiError;
+}
+
 // ---------------------------------------------------------------------------
 // PKCE helpers
 // ---------------------------------------------------------------------------
@@ -118,7 +147,11 @@ export async function exchangeCodeForTokens(
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`Token exchange failed (${response.status}): ${text}`);
+    throw new ProviderApiError({
+      message: `Token exchange failed (${response.status}): ${text}`,
+      operation: "token_exchange",
+      status: response.status,
+    });
   }
 
   return (await response.json()) as OAuthTokenResponse;
@@ -161,7 +194,11 @@ export async function refreshAccessToken(
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(`Token refresh failed (${response.status}): ${text}`);
+    throw new ProviderApiError({
+      message: `Token refresh failed (${response.status}): ${text}`,
+      operation: "token_refresh",
+      status: response.status,
+    });
   }
 
   return (await response.json()) as OAuthTokenResponse;
@@ -217,12 +254,21 @@ export async function makeAuthenticatedRequest<T = unknown>(
     }
 
     if (response.status === 401) {
-      throw new Error("Authorization expired — token refresh needed");
+      throw new ProviderApiError({
+        message: "Authorization expired — token refresh needed",
+        operation: "api_request",
+        status: response.status,
+        retryable: false,
+      });
     }
 
     if (!response.ok) {
       const text = await response.text();
-      throw new Error(`API request failed (${response.status}): ${text}`);
+      throw new ProviderApiError({
+        message: `API request failed (${response.status}): ${text}`,
+        operation: "api_request",
+        status: response.status,
+      });
     }
 
     if (response.status === 204) {
@@ -242,5 +288,10 @@ export async function makeAuthenticatedRequest<T = unknown>(
     return text as T;
   }
 
-  throw new Error(`API request failed after ${MAX_RETRIES} retries (rate limited)`);
+  throw new ProviderApiError({
+    message: `API request failed after ${MAX_RETRIES} retries (rate limited)`,
+    operation: "api_request",
+    status: 429,
+    retryable: true,
+  });
 }

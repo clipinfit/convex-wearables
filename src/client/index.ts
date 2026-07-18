@@ -181,6 +181,18 @@ export class WearablesClient {
     this.config = config;
   }
 
+  private resolvePullSyncLookbackHours(
+    provider: ProviderName,
+    explicit?: number,
+  ): number | undefined {
+    if (explicit !== undefined) return explicit;
+    const configured = this.config.pullSyncLookbackHours;
+    if (typeof configured === "number" || configured === undefined) {
+      return configured;
+    }
+    return configured[provider as CredentialedProviderName];
+  }
+
   /**
    * Get static delivery/sync capabilities for a provider.
    */
@@ -476,6 +488,7 @@ export class WearablesClient {
       connectionId: string;
       startDate?: number;
       endDate?: number;
+      lookbackHours?: number;
       syncWindowHours?: number;
       provider: ProviderName;
     },
@@ -487,6 +500,7 @@ export class WearablesClient {
       provider: args.provider,
       startDate: args.startDate,
       endDate: args.endDate,
+      lookbackHours: this.resolvePullSyncLookbackHours(args.provider, args.lookbackHours),
       syncWindowHours: args.syncWindowHours,
       clientId: credentials.clientId,
       clientSecret: credentials.clientSecret,
@@ -497,8 +511,19 @@ export class WearablesClient {
   /**
    * Run a sync across all active connections using the configured provider credentials.
    */
-  async syncAllActive(ctx: ActionRunner, args?: { syncWindowHours?: number }) {
+  async syncAllActive(
+    ctx: ActionRunner,
+    args?: { lookbackHours?: number; syncWindowHours?: number },
+  ) {
     const configured = this.config.providers;
+    const lookbackHoursByProvider = Object.fromEntries(
+      (["strava", "garmin", "polar", "whoop", "suunto"] as const)
+        .map((provider) => [
+          provider,
+          this.resolvePullSyncLookbackHours(provider, args?.lookbackHours),
+        ])
+        .filter((entry): entry is [(typeof entry)[0], number] => entry[1] !== undefined),
+    );
     return await ctx.runAction(this.component.syncWorkflow.syncAllActive, {
       clientCredentials: {
         garmin: configured.garmin,
@@ -507,6 +532,7 @@ export class WearablesClient {
         suunto: configured.suunto,
         whoop: configured.whoop,
       },
+      lookbackHoursByProvider,
       syncWindowHours: args?.syncWindowHours,
     });
   }

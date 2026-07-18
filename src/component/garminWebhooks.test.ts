@@ -307,7 +307,7 @@ describe("garminWebhooks", () => {
             summaryId: "resp-1",
             startTimeInSeconds: midday,
             avgWakingRespirationValue: 14.5,
-            timeOffsetRespirationRateValues: {
+            timeOffsetEpochToBreaths: {
               "0": 14.5,
               "300": 15.1,
             },
@@ -330,7 +330,7 @@ describe("garminWebhooks", () => {
           {
             userId: "garmin-user-1",
             summaryId: "bp-1",
-            measurementTimestampGMT: midday,
+            measurementTimeInSeconds: midday,
             systolic: 120,
             diastolic: 80,
           },
@@ -405,6 +405,7 @@ describe("garminWebhooks", () => {
 
       return {
         connection,
+        dataPoints,
         events,
         summaries,
         dataPointTypes: Array.from(new Set(dataPoints.map((point) => point.seriesType))).sort(),
@@ -486,6 +487,20 @@ describe("garminWebhooks", () => {
         "steps",
         "vo2_max",
         "weight",
+      ]),
+    );
+    expect(result.dataPoints).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          seriesType: "respiratory_rate",
+          recordedAt: (midday + 300) * 1000,
+          value: 15.1,
+        }),
+        expect.objectContaining({
+          seriesType: "blood_pressure_systolic",
+          recordedAt: midday * 1000,
+          value: 120,
+        }),
       ]),
     );
     expect(result.menstrualCycles).toHaveLength(1);

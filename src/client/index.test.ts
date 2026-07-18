@@ -244,6 +244,45 @@ describe("package exports", () => {
     });
     expect(client.getAllProviderCapabilityInfo()).toHaveLength(9);
   });
+
+  it("passes provider-specific pull lookback configuration to sync actions", async () => {
+    const component = {
+      syncWorkflow: {
+        syncConnection: "syncConnection",
+      },
+    } as unknown as WearablesComponent;
+    const client = new WearablesClient(component, {
+      providers: {
+        strava: { clientId: "client-id", clientSecret: "client-secret" },
+      },
+      pullSyncLookbackHours: { strava: 12 },
+    });
+    const calls: Array<{ ref: unknown; args: unknown }> = [];
+    const ctx: Parameters<WearablesClient["syncConnection"]>[0] = {
+      runAction: async (...args: unknown[]) => {
+        calls.push({ ref: args[0], args: args[1] });
+        return { syncJobId: "job-1", workflowId: "workflow-1", deduped: false } as never;
+      },
+    };
+
+    await client.syncConnection(ctx, {
+      connectionId: "connection-1",
+      provider: "strava",
+      syncWindowHours: 24,
+    });
+
+    expect(calls).toEqual([
+      {
+        ref: "syncConnection",
+        args: expect.objectContaining({
+          connectionId: "connection-1",
+          provider: "strava",
+          lookbackHours: 12,
+          syncWindowHours: 24,
+        }),
+      },
+    ]);
+  });
 });
 
 describe("registerRoutes", () => {

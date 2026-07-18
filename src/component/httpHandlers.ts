@@ -9,6 +9,27 @@
 import { internal } from "./_generated/api";
 import { httpAction } from "./_generated/server";
 
+function constantTimeStringEquals(left: string, right: string): boolean {
+  const leftBytes = new TextEncoder().encode(left);
+  const rightBytes = new TextEncoder().encode(right);
+  const length = Math.max(leftBytes.length, rightBytes.length);
+  let difference = leftBytes.length ^ rightBytes.length;
+
+  for (let index = 0; index < length; index += 1) {
+    difference |= (leftBytes[index] ?? 0) ^ (rightBytes[index] ?? 0);
+  }
+  return difference === 0;
+}
+
+export function isValidStravaVerifyToken(
+  providedToken: string | null,
+  expectedToken: string | undefined,
+): boolean {
+  return Boolean(
+    providedToken && expectedToken && constantTimeStringEquals(providedToken, expectedToken),
+  );
+}
+
 // ---------------------------------------------------------------------------
 // OAuth callback handler
 // ---------------------------------------------------------------------------
@@ -80,15 +101,16 @@ export const stravaWebhookVerify = httpAction(async (_ctx, request) => {
   const url = new URL(request.url);
   const mode = url.searchParams.get("hub.mode");
   const challenge = url.searchParams.get("hub.challenge");
-  const _verifyToken = url.searchParams.get("hub.verify_token");
+  const verifyToken = url.searchParams.get("hub.verify_token");
 
   if (mode !== "subscribe" || !challenge) {
     return new Response("Invalid request", { status: 400 });
   }
 
-  // The verify token should match what was set during subscription creation.
-  // For now, accept any verify token — the host app should validate this
-  // in their configuration.
+  if (!isValidStravaVerifyToken(verifyToken, process.env.STRAVA_WEBHOOK_VERIFY_TOKEN)) {
+    return new Response("Forbidden", { status: 403 });
+  }
+
   return new Response(JSON.stringify({ "hub.challenge": challenge }), {
     status: 200,
     headers: { "Content-Type": "application/json" },

@@ -10,6 +10,7 @@ import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { action, internalAction, internalMutation } from "./_generated/server";
+import { isProviderApiError } from "./providers/oauth";
 import { getProvider } from "./providers/registry";
 import type {
   NormalizedDailySummary,
@@ -23,6 +24,28 @@ const EVENT_BATCH_SIZE = 50;
 const DATA_POINT_BATCH_SIZE = 200;
 const SUMMARY_BATCH_SIZE = 50;
 const DEFAULT_SYNC_WINDOW_HOURS = 24;
+
+export function resolvePullSyncWindowStart(args: {
+  endDate: number;
+  lastSyncedAt?: number;
+  lookbackHours?: number;
+  syncWindowHours?: number;
+}): number {
+  const syncWindowHours = args.syncWindowHours ?? DEFAULT_SYNC_WINDOW_HOURS;
+  const lookbackHours = args.lookbackHours ?? 0;
+  if (!Number.isFinite(syncWindowHours) || syncWindowHours <= 0) {
+    throw new Error("syncWindowHours must be a positive finite number");
+  }
+  if (!Number.isFinite(lookbackHours) || lookbackHours < 0) {
+    throw new Error("lookbackHours must be a non-negative finite number");
+  }
+
+  const windowStart = args.endDate - syncWindowHours * 60 * 60 * 1000;
+  if (args.lastSyncedAt === undefined) {
+    return windowStart;
+  }
+  return Math.max(args.lastSyncedAt - lookbackHours * 60 * 60 * 1000, windowStart);
+}
 
 const syncPhase = v.union(v.literal("events"), v.literal("dataPoints"), v.literal("summaries"));
 
@@ -355,12 +378,7 @@ export const fetchSyncPhaseBatch = internalAction({
         nextCursor: offset + batch.length < all.length ? String(offset + batch.length) : null,
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (
-        message.includes("Authorization expired") ||
-        message.includes("Token expired") ||
-        message.includes("Token refresh failed")
-      ) {
+      if (isProviderApiError(error) && error.operation === "api_request" && error.status === 401) {
         await ctx.runMutation(internal.connections.updateStatus, {
           connectionId: connection._id,
           status: "expired",
@@ -588,6 +606,7 @@ export const syncConnection = action({
     provider: providerName,
     startDate: v.optional(v.number()),
     endDate: v.optional(v.number()),
+    lookbackHours: v.optional(v.number()),
     syncWindowHours: v.optional(v.number()),
     clientId: v.optional(v.string()),
     clientSecret: v.optional(v.string()),
@@ -625,10 +644,14 @@ export const syncConnection = action({
     }
 
     const endDate = args.endDate ?? Date.now();
-    const defaultWindowMs = (args.syncWindowHours ?? DEFAULT_SYNC_WINDOW_HOURS) * 60 * 60 * 1000;
     const startDate =
       args.startDate ??
-      Math.max(connection.lastSyncedAt ?? endDate - defaultWindowMs, endDate - defaultWindowMs);
+      resolvePullSyncWindowStart({
+        endDate,
+        lastSyncedAt: connection.lastSyncedAt,
+        lookbackHours: args.lookbackHours,
+        syncWindowHours: args.syncWindowHours,
+      });
 
     const result = await ctx.runMutation(internal.syncWorkflow.requestConnectionSync, {
       connectionId: args.connectionId,
@@ -681,6 +704,15 @@ export const syncAllActive = action({
         }),
       ),
     }),
+    lookbackHoursByProvider: v.optional(
+      v.object({
+        strava: v.optional(v.number()),
+        garmin: v.optional(v.number()),
+        polar: v.optional(v.number()),
+        whoop: v.optional(v.number()),
+        suunto: v.optional(v.number()),
+      }),
+    ),
     syncWindowHours: v.optional(v.number()),
   },
   returns: v.object({
@@ -719,8 +751,16 @@ export const syncAllActive = action({
         continue;
       }
 
-      const windowMs = (args.syncWindowHours ?? DEFAULT_SYNC_WINDOW_HOURS) * 60 * 60 * 1000;
-      const startDate = Math.max(conn.lastSyncedAt ?? endDate - windowMs, endDate - windowMs);
+      const lookbackHours =
+        args.lookbackHoursByProvider?.[
+          conn.provider as keyof NonNullable<typeof args.lookbackHoursByProvider>
+        ];
+      const startDate = resolvePullSyncWindowStart({
+        endDate,
+        lastSyncedAt: conn.lastSyncedAt,
+        lookbackHours,
+        syncWindowHours: args.syncWindowHours,
+      });
 
       try {
         const result = await ctx.runMutation(internal.syncWorkflow.requestConnectionSync, {

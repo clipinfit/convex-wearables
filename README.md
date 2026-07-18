@@ -718,6 +718,12 @@ Events are deduplicated at two levels:
 1. **By `externalId`** — provider-assigned IDs like `strava-12345` prevent duplicate imports
 2. **By `dataSourceId` + `startDatetime` + `endDatetime`** — catches duplicates even without external IDs
 
+This is same-provider replay protection, not cross-provider reconciliation. A
+Garmin workout and a copy observed through Strava have different provider
+identities and may both be stored. Host applications own canonical-source and
+cross-provider duplicate policy; see
+[Strava integration boundaries](./docs/strava-integration-boundaries.md).
+
 Data points are deduplicated by `dataSourceId` + `seriesType` + `recordedAt`.
 
 Rollups are upserted by `dataSourceId` + `seriesType` + `bucketMs` + `bucketStart`.
@@ -760,10 +766,32 @@ The component handles the full OAuth 2.0 authorization code flow:
 
 The sync workflow runs as a Convex action:
 
-1. **Token validation** — refreshes expired tokens automatically
+1. **Token validation** — refreshes expired tokens automatically, revokes connections whose refresh token is definitively rejected, and leaves transient provider failures retryable
 2. **Data fetch** — calls provider API with pagination (e.g., 200 activities per page from Strava)
 3. **Batch storage** — writes events in batches of 50 to stay within Convex's 1-second mutation timeout
 4. **Status tracking** — creates sync job records with status, timestamps, and error details
+
+Pull providers can re-fetch a trailing window so late provider revisions are not
+missed. Configure a global overlap or provider-specific values when constructing
+the client:
+
+```ts
+const wearables = new WearablesClient(components.wearables, {
+  providers: {
+    strava: { clientId: "...", clientSecret: "..." },
+    whoop: { clientId: "...", clientSecret: "..." },
+  },
+  pullSyncLookbackHours: {
+    strava: 6,
+    whoop: 24,
+  },
+});
+```
+
+Lookback is disabled by default to preserve existing provider API usage. It is
+subtracted from `lastSyncedAt` and capped by `syncWindowHours`. An explicit
+`startDate` always wins. Individual calls can override the configured value with
+`lookbackHours`.
 
 ### Cron-based sync
 
@@ -865,6 +893,11 @@ http.route({
 
 export default http;
 ```
+
+Set `STRAVA_WEBHOOK_VERIFY_TOKEN` in the host Convex deployment to the same
+secret used when creating the Strava webhook subscription. Verification fails
+closed with HTTP 403 when the secret is missing or does not match; the token is
+never logged.
 
 ### SDK Push (Apple Health / Google Health Connect)
 

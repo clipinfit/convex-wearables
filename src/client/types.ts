@@ -111,6 +111,12 @@ export type ProviderConfiguration = {
 export interface WearablesConfig {
   providers: ProviderConfiguration;
   /**
+   * Optional trailing overlap for live pull syncs, in hours. A number applies
+   * to every pull provider; an object configures providers independently.
+   * Disabled by default to preserve existing provider API usage.
+   */
+  pullSyncLookbackHours?: number | Partial<Record<CredentialedProviderName, number>>;
+  /**
    * Optional function reference called when new data is synced.
    * The host app can use this to trigger downstream processing.
    */

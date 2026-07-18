@@ -46,6 +46,34 @@ Version `0.6.0` adds the optional `showcase` profile. It creates seeded
 calendar weeks with four perfect target days, two days scoring from 80 through
 90, and one day below 70. Existing profiles and stored data are unchanged.
 
+## Version 0.7.0: pull lookback and provider correctness
+
+Version `0.7.0` adds optional trailing lookback for pull syncs,
+structured provider API failures, stricter connection lifecycle handling, and
+Garmin payload compatibility fixes.
+
+Migration assessment:
+
+- No component schema changes are required.
+- No stored component documents need rewriting.
+- Existing hosts can update and deploy without running a migration.
+- Pull lookback is disabled by default. Hosts opt in with
+  `pullSyncLookbackHours` on `WearablesClient` or `lookbackHours` per sync call.
+- Definitive 400/401 refresh-token rejection now marks the existing connection
+  `revoked`; transient 429/5xx/network failures do not revoke it.
+- Expired connections without a refresh token are marked `expired`.
+- Garmin blood pressure now accepts `measurementTimeInSeconds`; respiration
+  samples now prefer `timeOffsetEpochToBreaths` while retaining legacy aliases.
+
+Strava hosts have one required security configuration change if they mount the
+exported `stravaWebhookVerify` handler: configure
+`STRAVA_WEBHOOK_VERIFY_TOKEN` in the Convex deployment. The route now fails
+closed when the variable is absent. `../clipin-app` currently mounts only the
+Garmin route, so this does not require an app change there.
+
+Recommended release classification: minor while the package is pre-1.0 because
+it adds public sync configuration. There is no data migration.
+
 ## Provider-aware daily summaries
 
 The provider-aware daily summaries release adds provider provenance to

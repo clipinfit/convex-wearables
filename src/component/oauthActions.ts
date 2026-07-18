@@ -13,10 +13,11 @@ import {
   exchangeCodeForTokens,
   generateCodeChallenge,
   generateRandomString,
+  isProviderApiError,
   refreshAccessToken,
 } from "./providers/oauth";
 import { getProvider } from "./providers/registry";
-import type { ProviderCredentials } from "./providers/types";
+import type { OAuthTokenResponse, ProviderCredentials } from "./providers/types";
 import { providerName } from "./schema";
 
 // ---------------------------------------------------------------------------
@@ -232,6 +233,10 @@ export const ensureValidToken = internalAction({
 
     // Token is expired or about to expire — refresh it
     if (!args.refreshToken) {
+      await ctx.runMutation(internal.connections.updateStatus, {
+        connectionId: args.connectionId,
+        status: "expired",
+      });
       throw new Error(
         `Token expired for ${args.provider} connection and no refresh token available`,
       );
@@ -248,7 +253,22 @@ export const ensureValidToken = internalAction({
       subscriptionKey: args.subscriptionKey,
     };
     const config = providerDef.oauthConfig(credentials);
-    const tokenResponse = await refreshAccessToken(config, args.refreshToken);
+    let tokenResponse: OAuthTokenResponse;
+    try {
+      tokenResponse = await refreshAccessToken(config, args.refreshToken);
+    } catch (error) {
+      if (
+        isProviderApiError(error) &&
+        error.operation === "token_refresh" &&
+        (error.status === 400 || error.status === 401)
+      ) {
+        await ctx.runMutation(internal.connections.updateStatus, {
+          connectionId: args.connectionId,
+          status: "revoked",
+        });
+      }
+      throw error;
+    }
 
     const newExpiresAt = tokenResponse.expires_in
       ? Date.now() + tokenResponse.expires_in * 1000

@@ -4,6 +4,7 @@ import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
+import { resolvePullSyncWindowStart } from "./syncWorkflow";
 import { modules } from "./test.setup";
 
 function createWorkflowTest() {
@@ -14,6 +15,44 @@ function createWorkflowTest() {
 }
 
 describe("syncWorkflow", () => {
+  it("widens a live pull window by the configured trailing lookback", () => {
+    const hour = 60 * 60 * 1000;
+    const endDate = Date.parse("2026-07-18T12:00:00Z");
+    const lastSyncedAt = endDate - 2 * hour;
+
+    expect(
+      resolvePullSyncWindowStart({
+        endDate,
+        lastSyncedAt,
+        lookbackHours: 6,
+        syncWindowHours: 24,
+      }),
+    ).toBe(endDate - 8 * hour);
+  });
+
+  it("caps pull lookback at the configured sync window", () => {
+    const hour = 60 * 60 * 1000;
+    const endDate = Date.parse("2026-07-18T12:00:00Z");
+
+    expect(
+      resolvePullSyncWindowStart({
+        endDate,
+        lastSyncedAt: endDate - 20 * hour,
+        lookbackHours: 12,
+        syncWindowHours: 24,
+      }),
+    ).toBe(endDate - 24 * hour);
+  });
+
+  it("rejects invalid pull sync window configuration", () => {
+    expect(() =>
+      resolvePullSyncWindowStart({
+        endDate: Date.now(),
+        lookbackHours: -1,
+      }),
+    ).toThrow("lookbackHours must be a non-negative finite number");
+  });
+
   it("reuses an active sync job with the same idempotency key", async () => {
     const t = createWorkflowTest();
 
