@@ -24,6 +24,7 @@ type Modules = {
   oauthActions: typeof import("../oauthActions.js");
   sdkPush: typeof import("../sdkPush.js");
   summaries: typeof import("../summaries.js");
+  synthetic: typeof import("../synthetic.js");
   syncJobs: typeof import("../syncJobs.js");
   syncWorkflow: typeof import("../syncWorkflow.js");
 };

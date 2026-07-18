@@ -2,7 +2,7 @@
 
 [![Convex Component](https://www.convex.dev/components/badge/clipin/convex-wearables)](https://www.convex.dev/components/clipin/convex-wearables)
 
-A [Convex component](https://docs.convex.dev/components) for wearable device integrations. Sync health data from **Garmin, Strava, Whoop, Polar, Suunto, Apple HealthKit, Samsung Health, and Google Health Connect** into your Convex app.
+A [Convex component](https://docs.convex.dev/components) for wearable device integrations. Sync health data from **Garmin, Strava, Whoop, Polar, Suunto, Apple HealthKit, Samsung Health, and Google Health Connect**, or generate it with the built-in **Synthetic provider**, in your Convex app.
 
 Built as a drop-in module: install the component, pass your provider credentials, and start querying workouts, sleep sessions, heart rate, and 88 pre-defined health metrics — all in TypeScript, no backend glue code required.
 
@@ -19,6 +19,7 @@ Built as a drop-in module: install the component, pass your provider credentials
 - **Precomputed daily summaries** — activity, sleep, recovery, and body composition aggregates
 - **GDPR-ready** — cascading user data deletion in a single call
 - **Webhook + SDK push support** — Garmin webhooks plus normalized mobile SDK ingestion for Apple Health / Google Health Connect
+- **Synthetic provider** — deterministic, explicitly enabled wearable fixtures using the same normalized model
 - **Full TypeScript** — end-to-end type safety from provider API to client query
 
 ## Installation
@@ -282,6 +283,64 @@ category and date range.
 | `createSyncJob(ctx, { userId, provider? })` | Create a sync job record |
 | `getSyncJobs(ctx, { userId, limit? })` | Get recent sync jobs |
 | `syncAllActive(ctx, { syncWindowHours? })` | Trigger a sync across all active connections |
+
+#### Synthetic provider
+
+| Method | Description |
+|--------|-------------|
+| `isSyntheticProviderEnabled()` | Check whether userland enabled the integration |
+| `seedSyntheticData(ctx, args)` | Generate a connected and synced `synthetic` provider data set |
+| `getSyntheticDataStatus(ctx, { userId })` | Inspect its date range and normalized row counts |
+| `clearSyntheticData(ctx, { userId })` | Idempotently remove the user's synthetic integration |
+
+Enable the provider explicitly when constructing the client. Keep this setting
+off in production userland:
+
+```ts
+const wearables = new WearablesClient(components.wearables, {
+  providers: {
+    synthetic: { enabled: process.env.ENABLE_SYNTHETIC_WEARABLES === "true" },
+  },
+});
+```
+
+Call it from an authenticated host mutation. The host chooses the user and owns
+any admin/development authorization policy:
+
+```ts
+export const seedWearables = mutation({
+  args: {
+    userId: v.string(),
+    startDate: v.string(),
+    endDate: v.string(),
+  },
+  handler: async (ctx, args) => {
+    // Apply the host app's admin authorization here.
+    return await wearables.seedSyntheticData(ctx, {
+      ...args,
+      timezone: "Europe/Madrid",
+      profile: "mixed",
+      asOf: Date.now(),
+      replaceExisting: true,
+    });
+  },
+});
+```
+
+The explicit range may cover up to 31 days and cannot end after the `asOf` day.
+Generated events and time-series points never extend past `asOf`, which defaults
+to generation time. Prior calendar days stay stable when a range grows.
+`replaceExisting` atomically replaces that user's previous synthetic
+integration. Use `profile: "sedentary"` for a deterministic partial-score UI
+state. Garmin and other real connections coexist because generated rows use
+`provider: "synthetic"`, with a normal connection and a `SynthDevice` data
+source. The provider advertises generated-data capability but no OAuth, pull,
+webhook, or backfill capability, so existing sync routing ignores it naturally.
+
+The component namespace is also available directly as
+`components.wearables.synthetic`. No HTTP endpoint is registered. Direct
+component use bypasses the client's userland enablement check, so expose it only
+through an authenticated host function with the same policy.
 
 #### OAuth
 
@@ -871,6 +930,7 @@ The SDK payload also accepts `device` and `dailySummaries` as compatibility alia
 | Whoop | OAuth pull sync | Workouts, sleep, recovery, body data | Implemented |
 | Polar | OAuth pull sync | Workouts and provider data sync | Implemented |
 | Suunto | OAuth pull sync | Workouts, sleep, recovery, activity data | Implemented |
+| Synthetic | Deterministic local generation | Workouts, sleep, time-series, summaries through `SynthDevice` | Implemented; explicit opt-in |
 
 SDK-push providers rely on your app to send normalized payloads. The component stores and queries that data, but it does not yet fetch Apple Health, Samsung Health, or Google Health Connect data directly from vendor APIs.
 

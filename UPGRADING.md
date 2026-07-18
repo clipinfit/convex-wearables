@@ -25,6 +25,23 @@ Use the package version to signal upgrade risk:
 In practice, yes: changes like new optional fields or new tables should usually
 be `minor`, not `major`.
 
+## Synthetic provider
+
+The proposed release after `0.4.0` is `0.5.0`. It adds `"synthetic"` to
+`ProviderName`, a `components.wearables.synthetic` namespace, and matching
+`WearablesClient` helpers. Existing stored rows remain valid and no migration is
+required.
+
+Synthetic generation is disabled in `WearablesClient` until userland configures
+`providers.synthetic: { enabled: true }`. Do not enable it in production host
+configuration. Generated data is stored under its own provider, so it coexists
+with real Garmin, Whoop, and other integrations without ownership markers or
+takeover behavior.
+
+Generation accepts an optional `asOf` timestamp, rejects ranges ending after
+that local day, and does not write later events or time-series points. Hosts can
+use the `sedentary` profile to exercise partial-score UI states.
+
 ## Provider-aware daily summaries
 
 The provider-aware daily summaries release adds provider provenance to

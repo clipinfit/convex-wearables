@@ -6,6 +6,7 @@ import type {
 } from "./types.js";
 
 const DEFAULT_CAPABILITIES: ProviderCapabilities = {
+  generated: false,
   restPull: false,
   clientSdk: false,
   fileImport: false,
@@ -19,6 +20,7 @@ const DEFAULT_CAPABILITIES: ProviderCapabilities = {
 
 const PROVIDER_CAPABILITIES = {
   garmin: {
+    generated: false,
     restPull: false,
     clientSdk: false,
     fileImport: false,
@@ -30,6 +32,7 @@ const PROVIDER_CAPABILITIES = {
     maxHistoricalDays: 30,
   },
   suunto: {
+    generated: false,
     restPull: true,
     clientSdk: false,
     fileImport: false,
@@ -41,6 +44,7 @@ const PROVIDER_CAPABILITIES = {
     maxHistoricalDays: null,
   },
   polar: {
+    generated: false,
     restPull: true,
     clientSdk: false,
     fileImport: false,
@@ -52,6 +56,7 @@ const PROVIDER_CAPABILITIES = {
     maxHistoricalDays: null,
   },
   whoop: {
+    generated: false,
     restPull: true,
     clientSdk: false,
     fileImport: false,
@@ -63,6 +68,7 @@ const PROVIDER_CAPABILITIES = {
     maxHistoricalDays: null,
   },
   strava: {
+    generated: false,
     restPull: true,
     clientSdk: false,
     fileImport: false,
@@ -74,6 +80,7 @@ const PROVIDER_CAPABILITIES = {
     maxHistoricalDays: null,
   },
   apple: {
+    generated: false,
     restPull: false,
     clientSdk: true,
     fileImport: false,
@@ -85,6 +92,7 @@ const PROVIDER_CAPABILITIES = {
     maxHistoricalDays: null,
   },
   samsung: {
+    generated: false,
     restPull: false,
     clientSdk: true,
     fileImport: false,
@@ -96,6 +104,7 @@ const PROVIDER_CAPABILITIES = {
     maxHistoricalDays: null,
   },
   google: {
+    generated: false,
     restPull: false,
     clientSdk: true,
     fileImport: false,
@@ -105,6 +114,18 @@ const PROVIDER_CAPABILITIES = {
     webhookRegistrationApi: false,
     webhookInboundSecret: false,
     maxHistoricalDays: null,
+  },
+  synthetic: {
+    generated: true,
+    restPull: false,
+    clientSdk: false,
+    fileImport: false,
+    webhookCallback: false,
+    webhookStream: false,
+    webhookPing: false,
+    webhookRegistrationApi: false,
+    webhookInboundSecret: false,
+    maxHistoricalDays: 31,
   },
 } satisfies Record<ProviderName, ProviderCapabilities>;
 

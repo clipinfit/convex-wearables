@@ -3,7 +3,7 @@
  *
  * Convex component for wearable device integrations.
  * Provides health data sync from Garmin, Strava, Whoop, Polar, Suunto,
- * Apple HealthKit, Samsung Health, and Google Health Connect.
+ * Apple HealthKit, Samsung Health, Google Health Connect, and SynthDevice.
  */
 
 import type {
@@ -24,6 +24,7 @@ import type {
   AggregateStats,
   BackfillJob,
   Connection,
+  CredentialedProviderName,
   DailySummary,
   DataPoint,
   EffectiveTimeSeriesPolicy,
@@ -34,6 +35,7 @@ import type {
   LiveSyncMode,
   ProviderCapabilities,
   ProviderCapabilityInfo,
+  ProviderConfiguration,
   ProviderCredentials,
   ProviderName,
   RegisterRoutesConfig,
@@ -43,8 +45,15 @@ import type {
   SdkPushSummary,
   SdkRoutesConfig,
   SdkSyncPayload,
+  SeedSyntheticDataInput,
+  SeedSyntheticDataResult,
   SyncJob,
   SyncStatus,
+  SyntheticDataClearCounts,
+  SyntheticDataProfile,
+  SyntheticDataStatus,
+  SyntheticDataTarget,
+  SyntheticProviderConfig,
   TimeSeriesMaintenanceInput,
   TimeSeriesPage,
   TimeSeriesPolicyConfiguration,
@@ -78,6 +87,7 @@ export type {
   AggregateStats,
   BackfillJob,
   Connection,
+  CredentialedProviderName,
   DailySummary,
   DataPoint,
   EffectiveTimeSeriesPolicy,
@@ -88,6 +98,7 @@ export type {
   LiveSyncMode,
   ProviderCapabilities,
   ProviderCapabilityInfo,
+  ProviderConfiguration,
   ProviderCredentials,
   ProviderName,
   RegisterRoutesConfig,
@@ -97,8 +108,15 @@ export type {
   SdkPushSummary,
   SdkRoutesConfig,
   SdkSyncPayload,
+  SeedSyntheticDataInput,
+  SeedSyntheticDataResult,
   SyncJob,
   SyncStatus,
+  SyntheticDataClearCounts,
+  SyntheticDataProfile,
+  SyntheticDataStatus,
+  SyntheticDataTarget,
+  SyntheticProviderConfig,
   TimeSeriesMaintenanceInput,
   TimeSeriesPage,
   TimeSeriesPolicyConfiguration,
@@ -480,8 +498,15 @@ export class WearablesClient {
    * Run a sync across all active connections using the configured provider credentials.
    */
   async syncAllActive(ctx: ActionRunner, args?: { syncWindowHours?: number }) {
+    const configured = this.config.providers;
     return await ctx.runAction(this.component.syncWorkflow.syncAllActive, {
-      clientCredentials: this.config.providers,
+      clientCredentials: {
+        garmin: configured.garmin,
+        polar: configured.polar,
+        strava: configured.strava,
+        suunto: configured.suunto,
+        whoop: configured.whoop,
+      },
       syncWindowHours: args?.syncWindowHours,
     });
   }
@@ -523,6 +548,50 @@ export class WearablesClient {
     });
   }
 
+  // -----------------------------------------------------------------------
+  // Synthetic provider
+  // -----------------------------------------------------------------------
+
+  /**
+   * Whether the host explicitly enabled the synthetic provider.
+   */
+  isSyntheticProviderEnabled(): boolean {
+    return this.config.providers.synthetic?.enabled === true;
+  }
+
+  /**
+   * Generate deterministic normalized wearable data through the synthetic provider.
+   */
+  async seedSyntheticData(
+    ctx: MutationRunner,
+    args: SeedSyntheticDataInput,
+  ): Promise<SeedSyntheticDataResult> {
+    this.requireSyntheticProviderEnabled();
+    return await ctx.runMutation(this.component.synthetic.seed, args);
+  }
+
+  /**
+   * Clear only the matching synthetic data set. Real provider data is never removed.
+   */
+  async clearSyntheticData(
+    ctx: MutationRunner,
+    args: SyntheticDataTarget,
+  ): Promise<SyntheticDataClearCounts> {
+    this.requireSyntheticProviderEnabled();
+    return await ctx.runMutation(this.component.synthetic.clear, args);
+  }
+
+  /**
+   * Inspect the user's synthetic provider data set.
+   */
+  async getSyntheticDataStatus(
+    ctx: QueryRunner,
+    args: SyntheticDataTarget,
+  ): Promise<SyntheticDataStatus> {
+    this.requireSyntheticProviderEnabled();
+    return await ctx.runQuery(this.component.synthetic.status, args);
+  }
+
   /**
    * Resolve the configured SDK sync path, or null if the route is disabled.
    */
@@ -558,6 +627,7 @@ export class WearablesClient {
    * Get credentials for a provider.
    */
   getProviderCredentials(provider: ProviderName): ProviderCredentials | undefined {
+    if (provider === "synthetic") return undefined;
     return this.config.providers[provider];
   }
 
@@ -565,7 +635,9 @@ export class WearablesClient {
    * Get list of configured providers.
    */
   getConfiguredProviders(): ProviderName[] {
-    return Object.keys(this.config.providers) as ProviderName[];
+    return (Object.keys(this.config.providers) as ProviderName[]).filter(
+      (provider) => provider !== "synthetic" || this.isSyntheticProviderEnabled(),
+    );
   }
 
   private requireProviderCredentials(provider: ProviderName): ProviderCredentials {
@@ -574,6 +646,14 @@ export class WearablesClient {
       throw new Error(`Missing credentials for provider "${provider}"`);
     }
     return credentials;
+  }
+
+  private requireSyntheticProviderEnabled() {
+    if (!this.isSyntheticProviderEnabled()) {
+      throw new Error(
+        "The synthetic provider is disabled. Configure providers.synthetic with { enabled: true }.",
+      );
+    }
   }
 }
 

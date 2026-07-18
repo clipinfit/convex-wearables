@@ -13,6 +13,7 @@ export const providerName = v.union(
   v.literal("apple"),
   v.literal("samsung"),
   v.literal("google"),
+  v.literal("synthetic"),
 );
 
 /**

@@ -16,7 +16,10 @@ export type ProviderName =
   | "strava"
   | "apple"
   | "samsung"
-  | "google";
+  | "google"
+  | "synthetic";
+
+export type CredentialedProviderName = Exclude<ProviderName, "synthetic">;
 
 export type ConnectionStatus = "active" | "inactive" | "revoked" | "expired" | "error";
 
@@ -33,6 +36,8 @@ export type TimeSeriesRollupAggregation = "avg" | "min" | "max" | "last" | "coun
 export type LiveSyncMode = "pull" | "webhook";
 
 export interface ProviderCapabilities {
+  /** Provider creates deterministic generated data without an external service. */
+  generated: boolean;
   /**
    * Provider exposes a REST API that can be polled for historical or recent data.
    */
@@ -92,8 +97,19 @@ export interface ProviderCredentials {
   subscriptionKey?: string;
 }
 
+export interface SyntheticProviderConfig {
+  /** Explicit userland opt-in for generated wearable data. */
+  enabled: boolean;
+}
+
+export type ProviderConfiguration = {
+  [Provider in CredentialedProviderName]?: ProviderCredentials;
+} & {
+  synthetic?: SyntheticProviderConfig;
+};
+
 export interface WearablesConfig {
-  providers: Partial<Record<ProviderName, ProviderCredentials>>;
+  providers: ProviderConfiguration;
   /**
    * Optional function reference called when new data is synced.
    * The host app can use this to trigger downstream processing.
@@ -273,6 +289,73 @@ export interface SdkPushPayload {
 }
 
 export type SdkSyncPayload = SdkPushPayload;
+
+// ---------------------------------------------------------------------------
+// Synthetic provider
+// ---------------------------------------------------------------------------
+
+export type SyntheticDataProfile = "active" | "sedentary" | "recovery" | "mixed";
+
+export interface SeedSyntheticDataInput {
+  userId: string;
+  startDate: string;
+  endDate: string;
+  timezone: string;
+  /**
+   * Latest timestamp that generated events and time-series points may use.
+   * Defaults to the mutation's current time.
+   */
+  asOf?: number;
+  profile?: SyntheticDataProfile;
+  seed?: string;
+  replaceExisting?: boolean;
+}
+
+export interface SyntheticDataTarget {
+  userId: string;
+}
+
+export interface SyntheticDataClearCounts {
+  connections: number;
+  dataSources: number;
+  events: number;
+  dataPoints: number;
+  rollups: number;
+  seriesStates: number;
+  summaries: number;
+  syncJobs: number;
+}
+
+export interface SeedSyntheticDataResult {
+  connectionId: string;
+  dataSourceId: string;
+  syncJobId: string;
+  startDate: string;
+  endDate: string;
+  eventsStored: number;
+  dataPointsStored: number;
+  summariesStored: number;
+  lastSyncedAt: number;
+  cleared: SyntheticDataClearCounts;
+}
+
+export interface SyntheticDataStatus {
+  exists: boolean;
+  connectionId: string | null;
+  lastSyncedAt: number | null;
+  startDate: string | null;
+  endDate: string | null;
+  counts: {
+    connections: number;
+    dataSources: number;
+    events: number;
+    dataPoints: number;
+    rollups: number;
+    seriesStates: number;
+    summaries: number;
+    syncJobs: number;
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Connection types

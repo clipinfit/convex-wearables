@@ -151,10 +151,60 @@ describe("package exports", () => {
     ]);
   });
 
+  it("requires userland enablement and routes generation through the synthetic provider", async () => {
+    const component = {
+      synthetic: {
+        clear: "clearSyntheticData",
+        seed: "seedSyntheticData",
+        status: "getSyntheticDataStatus",
+      },
+    } as unknown as WearablesComponent;
+    const disabledClient = new WearablesClient(component, { providers: {} });
+    const client = new WearablesClient(component, {
+      providers: { synthetic: { enabled: true } },
+    });
+    const calls: Array<{ kind: string; ref: unknown; args: unknown }> = [];
+    const queryCtx: Parameters<WearablesClient["getSyntheticDataStatus"]>[0] = {
+      runQuery: async (...args: unknown[]) => {
+        calls.push({ kind: "query", ref: args[0], args: args[1] });
+        return null as never;
+      },
+    };
+    const mutationCtx: Parameters<WearablesClient["clearSyntheticData"]>[0] = {
+      runMutation: async (...args: unknown[]) => {
+        calls.push({ kind: "mutation", ref: args[0], args: args[1] });
+        return null as never;
+      },
+    };
+    const target = { userId: "user-1" };
+    const seed = {
+      ...target,
+      startDate: "2026-07-13",
+      endDate: "2026-07-19",
+      timezone: "Europe/Madrid",
+    };
+
+    expect(client.isSyntheticProviderEnabled()).toBe(true);
+    expect(disabledClient.isSyntheticProviderEnabled()).toBe(false);
+    await expect(disabledClient.seedSyntheticData(mutationCtx, seed)).rejects.toThrow(
+      "synthetic provider is disabled",
+    );
+    await client.seedSyntheticData(mutationCtx, seed);
+    await client.getSyntheticDataStatus(queryCtx, target);
+    await client.clearSyntheticData(mutationCtx, target);
+
+    expect(calls).toEqual([
+      { kind: "mutation", ref: "seedSyntheticData", args: seed },
+      { kind: "query", ref: "getSyntheticDataStatus", args: target },
+      { kind: "mutation", ref: "clearSyntheticData", args: target },
+    ]);
+  });
+
   it("exposes additive provider capability metadata", () => {
     const client = new WearablesClient({} as WearablesComponent, { providers: {} });
 
     expect(getProviderCapabilities("garmin")).toMatchObject({
+      generated: false,
       restPull: false,
       webhookCallback: true,
       webhookStream: true,
@@ -180,13 +230,19 @@ describe("package exports", () => {
       supportsManualSync: false,
       supportsHistoricalSync: false,
     });
+    expect(getProviderCapabilityInfo("synthetic")).toMatchObject({
+      generated: true,
+      defaultLiveSyncMode: null,
+      supportsManualSync: false,
+      supportsHistoricalSync: false,
+    });
     expect(getDefaultLiveSyncMode("whoop")).toBe("pull");
     expect(client.getProviderCapabilityInfo("apple")).toMatchObject({
       provider: "apple",
       clientSdk: true,
       implemented: true,
     });
-    expect(client.getAllProviderCapabilityInfo()).toHaveLength(8);
+    expect(client.getAllProviderCapabilityInfo()).toHaveLength(9);
   });
 });
 

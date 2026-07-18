@@ -1,93 +1,95 @@
-# Seed Data Generator PRD
+# Synthetic provider
 
 ## Status
 
-Draft.
+Implemented for the next release after `0.4.0`.
 
-## Source Signal
+## Architecture
 
-A reference implementation added a seed data generator and later added Oura as a seed provider.
+Synthetic wearable data is represented as a first-class provider rather than as
+a marker attached to Garmin or another real integration:
 
-## Problem
+- canonical provider: `synthetic`;
+- one normal connection per user;
+- one `SynthDevice` data source beneath that connection; and
+- normalized events, time-series points, daily summaries, and sync history.
 
-Developing and testing wearable UX requires realistic multi-day data. `convex-wearables` users currently need to connect real providers or hand-write SDK payloads.
+The normalized read APIs do not special-case generated data. Provider-aware
+queries can select `synthetic` exactly as they select Garmin, Whoop, or Apple.
+Real provider connections coexist with it and never require takeover logic.
 
-## Goals
+## Public API
 
-- Provide a developer-only seed generator for workouts, sleep, time-series, daily summaries, and future health scores.
-- Make demo and QA setup repeatable.
-- Keep production deployments safe by requiring explicit calls and optional guardrails.
+The component exposes:
 
-## Non-Goals
+- `components.wearables.synthetic.seed`;
+- `components.wearables.synthetic.status`; and
+- `components.wearables.synthetic.clear`.
 
-- Do not generate clinically meaningful synthetic data.
-- Do not run automatically in production.
-- Do not include raw provider payloads.
+`WearablesClient` provides matching helpers:
 
-## Requirements
+- `isSyntheticProviderEnabled`;
+- `seedSyntheticData`;
+- `getSyntheticDataStatus`; and
+- `clearSyntheticData`.
 
-- Add an action:
+## Userland enablement
+
+The host opts in when constructing the client:
 
 ```ts
-seedWearablesData({
-  userId: string;
-  provider?: ProviderName;
-  days: number;
-  profile?: "active" | "sedentary" | "recovery" | "mixed";
-  clearExisting?: boolean;
-})
+const wearables = new WearablesClient(components.wearables, {
+  providers: {
+    synthetic: { enabled: process.env.ENABLE_SYNTHETIC_WEARABLES === "true" },
+  },
+});
 ```
 
-- Generate internally normalized data through existing component mutations.
-- Use deterministic seeds when requested.
-- Tag generated source metadata with `source: "seed"` and `originalSourceName: "convex-wearables-seed"`.
-- Document production safety.
+The client rejects generation, status, and clear calls while the provider is
+disabled. Component functions remain directly callable by host functions, so
+the host must expose them only through its authenticated development/admin
+policy. There is no HTTP route and generation never runs automatically.
 
-## Existing User Impact
+## Generation
 
-No schema migration is required if generated rows use existing tables.
+`seed` accepts a user ID, explicit ISO date range, IANA timezone, optional
+profile, optional deterministic random seed, and optional `asOf` timestamp. A
+range is limited to 31 days and cannot end after the `asOf` day. Events and
+time-series points never extend beyond `asOf`, which defaults to generation
+time.
+The generated integration includes:
 
-Recommended npm versioning:
+- sleep and workout events;
+- heart rate, steps, recovery, HRV, and SpO2 time series;
+- activity, sleep, and recovery daily summaries; and
+- a completed sync job plus `lastSyncedAt` on the connection.
 
-- Minor version if additive.
+Identical user, date, profile, and seed inputs generate identical health values.
+Extending a range does not change prior calendar days. The `sedentary` profile
+keeps steps, active calories, and sleep below the default UI goals so partial
+score states can be exercised. Generated values are plausible UI fixtures, not
+clinically meaningful data.
 
-`../clipin-app` impact:
+## Replacement and cleanup
 
-- No required app changes.
-- Useful for local and staging demo accounts.
-- Should be hidden behind a development or admin-only control.
+Seeding fails if a synthetic connection already exists unless
+`replaceExisting: true` is supplied. Generation, replacement, and normalized
+writes run in one mutation, so failures roll back atomically and concurrent
+replacements cannot leave partial or orphaned fixtures.
 
-Breaking risk:
+`clear` traverses the synthetic connection and its data sources, deleting their
+events, time-series points, rollups, series state, summaries, and sync jobs. It
+is idempotent and cannot select another provider's rows.
 
-- If `clearExisting` is misused, user data could be deleted. Default it to `false` and require explicit provider/user scoping.
+## Provider capabilities
 
-## Versioning Guidance
+The provider advertises `generated: true` and no OAuth, pull, client SDK,
+webhook, historical sync, or backfill capability. Generic capability routing
+therefore excludes it from provider workflows without checking synthetic flags
+inside OAuth, connection, data-source, summary, or backfill code.
 
-Expected bump: minor (`0.3.0` or later pre-1.0 minor) because this is a new developer-facing feature.
+## Versioning
 
-Use a patch only if adding small test-only fixtures that are not exported as public APIs.
-
-Use a major release, or the next pre-1.0 minor with explicit breaking notes, if implementation:
-
-- changes existing ingestion APIs to support seed data;
-- adds required schema fields to existing tables;
-- introduces automatic seed behavior.
-
-Implementation considerations:
-
-- Do not run automatically in production.
-- Require explicit `userId`, provider scope, and `clearExisting: true` for destructive cleanup.
-- Mark generated rows through existing source metadata or a dedicated optional marker before adding cleanup APIs.
-- `../clipin-app` should expose this only in local/staging/admin contexts.
-
-## Rollout
-
-1. Add generator helpers and tests.
-2. Add action behind explicit call only.
-3. Document local/staging usage.
-4. Optionally add host app UI in `clipin-app`.
-
-## Open Questions
-
-- Should seeded rows have a dedicated boolean marker for cleanup, or is source metadata enough?
-- Should generated data include edge cases such as naps, partial days, and missing sources?
+Recommended future version: `0.5.0`. Adding a provider literal and public
+functions is an additive pre-1.0 minor change. Existing component data remains
+valid and no stored-data migration is required.

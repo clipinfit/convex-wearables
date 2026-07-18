@@ -196,6 +196,9 @@ export const requestConnectionSync = internalMutation({
     if (connection.status !== "active") {
       throw new Error(`Connection ${args.connectionId} is not active`);
     }
+    if (!getProvider(connection.provider)) {
+      throw new Error(`Provider "${connection.provider}" does not support pull synchronization`);
+    }
 
     const mode = args.mode ?? "manual";
     const idempotencyKey = buildSyncIdempotencyKey({

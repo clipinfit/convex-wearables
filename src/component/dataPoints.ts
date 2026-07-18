@@ -894,7 +894,7 @@ function policyRequiresMaintenance(tiers: NormalizedTimeSeriesTier[]) {
 // Write path
 // ---------------------------------------------------------------------------
 
-async function storePointsWithPolicy(
+export async function storePointsWithPolicy(
   ctx: TimeSeriesMutationContext,
   args: {
     dataSourceId: Id<"dataSources">;

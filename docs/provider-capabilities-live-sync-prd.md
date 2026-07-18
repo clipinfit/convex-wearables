@@ -36,6 +36,7 @@ This creates app-specific conditionals in consumers such as `../clipin-app` and 
 ## Requirements
 
 - Add a `ProviderCapabilities` type with flags:
+  - `generated`
   - `restPull`
   - `clientSdk`
   - `fileImport`
@@ -46,7 +47,7 @@ This creates app-specific conditionals in consumers such as `../clipin-app` and 
   - `webhookInboundSecret`
   - `maxHistoricalDays`
 - Add `liveSyncConfigurable` and `defaultLiveSyncMode` derived helpers.
-- Add provider-level capability definitions for Garmin, Strava, Whoop, Polar, Suunto, Apple, Samsung, and Google.
+- Add provider-level capability definitions for Garmin, Strava, Whoop, Polar, Suunto, Apple, Samsung, Google, and Synthetic.
 - Expose `getProviderCapabilities(provider)` from the package.
 - Use capabilities to prevent manual sync for push-only providers unless a supported backfill path exists.
 
