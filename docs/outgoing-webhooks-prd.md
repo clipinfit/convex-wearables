@@ -1,8 +1,16 @@
+---
+date: 2026-07-18
+status: PLANNED
+priority: P1
+semver: minor
+owner_repo: convex-wearables
+---
+
 # Outgoing Webhooks PRD
 
 ## Status
 
-Draft.
+Planned after first-class health-score storage.
 
 ## Source Signal
 
@@ -98,6 +106,37 @@ Implementation considerations:
 3. Emit events from SDK push, Garmin webhooks, and sync workflow.
 4. Add docs with payload examples and idempotency semantics.
 5. Add optional external webhook delivery as a separate phase.
+
+## Migration and Existing Consumer Upgrade Path
+
+Phase 1 must be schema-free: add an optional host-provided
+`onWearablesEvent` function and keep `onDataSynced`. Existing hosts require no
+configuration and existing documents require no migration.
+
+Phase 2 may add `outgoingWebhookSubscriptions` and
+`outgoingWebhookDeliveries`. Those are additive tables with no historical
+rewrite. A host must deploy that schema before enabling external subscriptions.
+
+For `../clipin-app`:
+
+- package-only update is safe while both callbacks are optional;
+- CLIPIN should add an authenticated internal event handler only when it has a
+  concrete consumer;
+- external delivery must stay disabled until secrets, retries, retention, and
+  support ownership are configured; and
+- existing downstream work must remain active until event parity is measured.
+
+Rollback from phase 1 is code-only. Rollback from phase 2 must leave additive
+tables in schema until stored delivery records are intentionally disposed.
+
+## Acceptance Criteria
+
+- Ingestion success never depends on downstream delivery success.
+- Every emitted event has a stable type, version, timestamp, and idempotency key.
+- Time-series payloads are bounded by count and encoded size.
+- Secrets and provider tokens never appear in event payloads or logs.
+- `onDataSynced` remains compatible for at least one deprecation cycle.
+- Delivery retries distinguish retryable failures from permanent 4xx responses.
 
 ## Open Questions
 

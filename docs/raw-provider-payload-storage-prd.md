@@ -1,8 +1,17 @@
+---
+date: 2026-07-18
+status: PROPOSED_OPTIONAL
+priority: P3
+semver: minor
+owner_repo: convex-wearables
+activation: privacy-and-security-approval
+---
+
 # Raw Provider Payload Storage PRD
 
 ## Status
 
-Draft.
+Optional and gated on privacy, security, retention, and support approval.
 
 ## Source Signal
 
@@ -107,6 +116,26 @@ Implementation considerations:
 ## Migration Plan
 
 No historical migration. Raw payload capture starts after opt-in.
+
+## Existing Consumer Upgrade Path
+
+Prefer a host-provided encrypted blob sink so phase 1 adds no component schema.
+If audit metadata is component-owned, use an additive table with bounded
+retention and no payload body. Existing rows require no migration and there is
+no historical backfill.
+
+For `../clipin-app`, package deployment alone must never enable capture. CLIPIN
+needs a privacy/security decision, encrypted storage, access controls, deletion
+handling, retention limits, and incident-support ownership before passing a
+sink callback or feature flag.
+
+## Acceptance Criteria
+
+- Disabled by default and impossible to enable accidentally through missing config.
+- Payload bytes never enter logs, error messages, or delivery events.
+- Storage, encryption, retention, access audit, and deletion are tested.
+- Capture failure cannot fail normalized ingestion unless a host explicitly
+  selects strict compliance mode.
 
 ## Open Questions
 

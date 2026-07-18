@@ -1,8 +1,17 @@
+---
+date: 2026-07-18
+status: PROPOSED
+priority: P2
+semver: minor
+owner_repo: convex-wearables
+activation: partner-access-and-product-demand
+---
+
 # Ultrahuman Provider PRD
 
 ## Status
 
-Draft.
+Proposed after partner API access and product demand are confirmed.
 
 ## Source Signal
 
@@ -81,6 +90,25 @@ Implementation considerations:
 3. Add tests.
 4. Document required credentials and scopes.
 5. Enable in `clipin-app` behind a feature flag.
+
+## Existing Consumer Upgrade Path
+
+Adding `"ultrahuman"` widens `ProviderName` and the component schema validator;
+it does not invalidate existing documents and requires no row migration. It can
+break exhaustive TypeScript switches at compile time, which is desirable and
+must be handled intentionally.
+
+For `../clipin-app`: update the package, deploy the widened schema, resolve all
+exhaustive provider switches, add credentials, then expose connection UI behind
+a flag. Never configure or reference Ultrahuman before the schema deployment.
+
+## Acceptance Criteria
+
+- Representative partner fixtures cover sleep, recovery, activity, and body data.
+- OAuth refresh/revocation follows structured lifecycle behavior.
+- Units and timezone/date semantics are explicit and tested.
+- Provider capability metadata reflects actual pull/webhook support.
+- Existing providers and stored rows remain unchanged.
 
 ## Open Questions
 

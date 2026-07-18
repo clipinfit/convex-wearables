@@ -1,21 +1,31 @@
-# Polar and Suunto Webhooks PRD
+---
+date: 2026-07-18
+status: PLANNED
+priority: P2
+semver: minor
+owner_repo: convex-wearables
+depends_on: outgoing-webhooks-prd
+---
+
+# Polar, Suunto, and Whoop Live Webhooks PRD
 
 ## Status
 
-Draft.
+Planned after the generic outgoing event boundary.
 
 ## Source Signal
 
-A reference implementation added Suunto webhook handling and later a substantial Polar refactor with webhook registration, webhook secret handling, and richer Polar 24/7 data extraction.
+A reference implementation added Suunto webhook handling, a substantial Polar refactor with webhook registration and secret handling, and Whoop incoming workout/sleep/recovery handlers.
 
 ## Problem
 
-`convex-wearables` has Polar and Suunto pull adapters, but live sync behavior is incomplete compared with the target provider behavior. Users relying on these providers may see delayed data until the next manual or scheduled sync.
+`convex-wearables` has Polar, Suunto, and Whoop pull adapters, but live sync behavior is incomplete compared with the target provider behavior. Users relying on these providers may see delayed data until the next manual or scheduled sync.
 
 ## Goals
 
 - Add Suunto live webhook ingestion where provider contracts allow it.
 - Add Polar webhook registration and inbound verification.
+- Add Whoop workout, sleep, and recovery webhook ingestion.
 - Reuse the provider capability model for UI and sync decisions.
 - Preserve existing pull sync as fallback.
 
@@ -27,7 +37,7 @@ A reference implementation added Suunto webhook handling and later a substantial
 
 ## Requirements
 
-- Add route config for Polar and Suunto webhook endpoints.
+- Add route config for Polar, Suunto, and Whoop webhook endpoints.
 - Add provider settings fields if required:
   - `webhookSecret?: string`
   - `liveSyncMode?: "pull" | "webhook"`
@@ -79,6 +89,33 @@ Implementation considerations:
 3. Add handlers and tests.
 4. Add a manual registration action for provider webhooks.
 5. Enable per provider in `clipin-app` only after provider credentials and callback URLs are configured.
+
+## Existing Consumer Upgrade Path
+
+Expected schema changes are optional fields on `providerSettings` or an
+additive provider-webhook registration table. No existing health-data row needs
+rewriting. If an index is added to the existing settings table, stage it before
+query use.
+
+`../clipin-app` currently configures only Garmin, so package/schema deployment
+does not require route or environment changes there. When CLIPIN enables one of
+these providers it must, in order:
+
+1. update and deploy the component schema;
+2. configure provider credentials and signing/verification secrets;
+3. mount only that provider's routes;
+4. register/verify the provider subscription;
+5. retain pull sync as fallback during parity measurement; and
+6. switch the capability metadata/live mode only after monitored success.
+
+## Acceptance Criteria
+
+- Invalid signatures/secrets fail closed without logging secret material.
+- Webhook receipt is acknowledged after durable scheduling, not full ingest.
+- Duplicate, reordered, and unknown-user notifications are safe.
+- Permanent provider/delivery 4xx failures are not retried forever.
+- Pull fallback remains available until explicitly disabled.
+- Capability metadata matches the routes and handlers actually enabled.
 
 ## Open Questions
 

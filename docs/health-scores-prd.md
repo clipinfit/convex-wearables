@@ -1,8 +1,16 @@
+---
+date: 2026-07-18
+status: PLANNED
+priority: P1
+semver: minor
+owner_repo: convex-wearables
+---
+
 # Health Scores PRD
 
 ## Status
 
-Draft.
+Planned after provider-neutral workout enrichment.
 
 ## Source Signal
 
@@ -100,6 +108,34 @@ Implementation considerations:
    - read score-like daily summaries and data points;
    - write health score rows with deterministic idempotency.
 4. Document that existing deployments do not need to run the backfill unless they want historical score queries.
+
+## Existing Consumer Upgrade Path
+
+Schema impact: additive `healthScores` table and indexes. Existing tables and
+validators remain compatible, so deploying the first implementation requires
+no existing-row rewrite.
+
+For `../clipin-app`:
+
+1. Update the package only after an operator publishes the compatibility release.
+2. Deploy the backend before adding any calls to health-score component APIs.
+3. Keep existing `dailySummaries` score reads working during dual-write.
+4. Adopt CLIPIN wrapper queries and UI incrementally.
+5. Run the optional component-owned backfill only if historical score UI is
+   required; otherwise new records begin at deployment time.
+6. Verify backfill counts and score ranges before switching canonical reads.
+
+The optional historical backfill is a data migration even though schema deploy
+is migration-free. It must be resumable, idempotent, observable, and opt-in.
+
+## Acceptance Criteria
+
+- Existing `0.6.0` data deploys without rewrite.
+- Provider and internal scores cannot collide under the same identity key.
+- Reprocessing a provider payload is idempotent.
+- Sleep-linked scores recalculate after an authoritative sleep update.
+- Dual-write keeps existing summary consumers compatible.
+- Optional backfill reports scanned, inserted, updated, skipped, and failed counts.
 
 ## Open Questions
 

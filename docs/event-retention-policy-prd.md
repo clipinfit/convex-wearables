@@ -1,8 +1,17 @@
+---
+date: 2026-07-18
+status: PROPOSED
+priority: P2
+semver: minor
+owner_repo: convex-wearables
+activation: explicit-policy-only
+---
+
 # Event Retention Policy PRD
 
 ## Status
 
-Proposed. Not planned for immediate implementation.
+Proposed after higher-priority ingestion and observability work.
 
 ## Background
 
@@ -331,6 +340,29 @@ Avoid requiring consumers to inspect component tables directly.
 - Add examples for Free/Pro/Premium plans.
 - Add docs explaining interaction with time-series and daily summaries.
 - Consider a health-check API that reports missing policy setup.
+
+## Migration and Existing Consumer Upgrade Path
+
+Expected schema impact is additive policy, assignment, settings, and maintenance
+cursor tables. Existing events remain valid and no row rewrite is required.
+However, enabling a finite policy is a destructive operational migration
+because maintenance deletes expired events.
+
+The implementation must deploy with retain-forever behavior, offer a dry-run
+count/age projection, require an explicit enable action, and record deletion
+counts. Existing users must never begin deleting events merely by upgrading.
+
+For `../clipin-app`:
+
+1. update and deploy the additive schema;
+2. keep the default retain-forever configuration;
+3. define CLIPIN plan/privacy requirements;
+4. run dry-run projections against production distribution;
+5. approve a policy separately; and
+6. monitor bounded maintenance before expanding scope.
+
+Rollback is possible only before deletion. After maintenance deletes rows,
+recovery requires provider re-sync or backups where available.
 
 ## Success Criteria
 

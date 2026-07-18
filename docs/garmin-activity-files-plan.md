@@ -7,6 +7,8 @@ semver: minor
 # Garmin Activity Files Support Plan for `convex-wearables`
 
 ## Summary
+- This provider-specific plan is a child of the normalized data model and
+  migration strategy in [Provider-Neutral Workout Enrichment PRD](./workout-enrichment-prd.md).
 - Add opt-in Garmin Activity Files ingestion to extract detail that is not available in the current `activities` or `activityDetails` JSON feeds.
 - Keep the first milestone focused on the main product gap: strength workout detail such as exercises, sets, reps, and load when present in the file.
 - Reuse the existing Garmin webhook endpoint, but do not download or parse files inline in the webhook request.

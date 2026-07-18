@@ -1,8 +1,16 @@
+---
+date: 2026-07-18
+status: PLANNED
+priority: P2
+semver: minor
+owner_repo: convex-wearables
+---
+
 # Sync Status Observability PRD
 
 ## Status
 
-Draft.
+Planned after live provider webhook support.
 
 ## Source Signal
 
@@ -101,6 +109,25 @@ Implementation considerations:
 No historical migration required. New sync events start after deployment.
 
 Optional backfill from existing `syncJobs` can create one synthetic terminal event per recent job, but it is not required and may not be worth the complexity.
+
+## Existing Consumer Upgrade Path
+
+Expected schema impact is an additive, bounded `syncEvents` table and possibly
+optional metadata on new `syncJobs`. Existing jobs remain readable and require
+no rewrite. New-table indexes do not backfill an existing large table.
+
+For `../clipin-app`, deploy the component before adding wrapper queries. Keep
+the current status UI until manual, cron, SDK, Garmin webhook, and backfill paths
+all emit equivalent terminal events. Historical synthesis should remain off by
+default; if added, it is an optional idempotent data migration.
+
+## Acceptance Criteria
+
+- Every sync source emits a terminal state or an observable stale state.
+- Reads are indexed, paginated/bounded, and safe for reactive clients.
+- Progress writes do not create unbounded high-churn updates on stable records.
+- Retention is configured from the first release.
+- Existing sync-status APIs remain compatible during adoption.
 
 ## Open Questions
 
