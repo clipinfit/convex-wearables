@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { type MutationCtx, mutation, query } from "./_generated/server";
 import { storePointsWithPolicy } from "./dataPoints";
+import { assertIngestionAllowed } from "./lifecycle";
 import { buildSyntheticDataPlan } from "./syntheticData";
 
 const SYNTHETIC_PROVIDER = "synthetic" as const;
@@ -145,6 +146,7 @@ export const seed = mutation({
     cleared: clearCountsValidator,
   }),
   handler: async (ctx, args) => {
+    await assertIngestionAllowed(ctx, { userId: args.userId, provider: SYNTHETIC_PROVIDER });
     const asOf = args.asOf ?? Date.now();
     const plan = buildSyntheticDataPlan({
       userId: args.userId,

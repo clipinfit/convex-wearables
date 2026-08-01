@@ -4,8 +4,13 @@
  * No network calls — tests URL building, PKCE generation, and config handling.
  */
 
-import { describe, expect, it } from "vitest";
-import { buildAuthorizationUrl, generateCodeChallenge, generateRandomString } from "./oauth";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  buildAuthorizationUrl,
+  generateCodeChallenge,
+  generateRandomString,
+  makeDeregistrationRequest,
+} from "./oauth";
 import type { OAuthProviderConfig } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -170,5 +175,66 @@ describe("provider-specific OAuth configs", () => {
 
     const parsed = new URL(url);
     expect(parsed.searchParams.get("scope")).toBe("activity:read_all,profile:read_all");
+  });
+});
+
+describe("provider deregistration", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("classifies provider HTTP failures without including response bodies", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("sensitive provider response", { status: 503 })),
+    );
+
+    await expect(
+      makeDeregistrationRequest({
+        url: "https://provider.example.com/revoke",
+        accessToken: "secret-token",
+        method: "DELETE",
+      }),
+    ).rejects.toMatchObject({
+      operation: "deregister",
+      retryable: true,
+      status: 503,
+      message: "Provider deregistration failed with HTTP 503",
+    });
+  });
+
+  it("uses Strava's current OAuth revoke contract", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { stravaProvider } = await import("./strava");
+
+    await stravaProvider.deregisterUser?.("access-token", undefined, {
+      clientId: "client-id",
+      clientSecret: "client-secret",
+    });
+
+    const [url, init] = fetchMock.mock.calls[0] as Parameters<typeof fetch>;
+    expect(url).toBe("https://www.strava.com/oauth/revoke");
+    expect(init?.method).toBe("POST");
+    expect(init?.headers).toMatchObject({
+      Authorization: `Basic ${btoa("client-id:client-secret")}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    });
+    expect(init?.body).toContain("token=access-token");
+  });
+
+  it.each([
+    ["garmin", "https://apis.garmin.com/partner-gateway/rest/user/registration"],
+    ["polar", "https://www.polaraccesslink.com/v3/users/polar-user"],
+    ["whoop", "https://api.prod.whoop.com/developer/v2/user/access"],
+  ] as const)("uses the documented %s deregistration endpoint", async (provider, expectedUrl) => {
+    const fetchMock = vi.fn<typeof fetch>(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { getProvider } = await import("./registry");
+
+    await getProvider(provider)?.deregisterUser?.("access-token", "polar-user");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expectedUrl,
+      expect.objectContaining({ method: "DELETE" }),
+    );
   });
 });

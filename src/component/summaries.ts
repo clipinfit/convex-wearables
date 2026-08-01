@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery, query } from "./_generated/server";
+import { assertIngestionAllowed } from "./lifecycle";
 import { providerName } from "./schema";
 
 const summaryMetricsValidator = {
@@ -128,6 +129,7 @@ export const upsert = internalMutation({
   },
   returns: v.id("dailySummaries"),
   handler: async (ctx, args) => {
+    await assertIngestionAllowed(ctx, args);
     const {
       userId,
       provider,

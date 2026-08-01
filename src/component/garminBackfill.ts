@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { action, internalAction, internalMutation } from "./_generated/server";
 import { backfillSignal } from "./backfillJobs";
+import { assertIngestionAllowed } from "./lifecycle";
 import { triggerBackfill } from "./providers/garmin";
 import { durableWorkflow } from "./workflowManager";
 
@@ -57,6 +58,7 @@ export const requestGarminBackfill = internalMutation({
     if (connection.provider !== "garmin") {
       throw new Error("Garmin backfill is only supported for Garmin connections");
     }
+    await assertIngestionAllowed(ctx, connection);
 
     const existing = await ctx.db
       .query("backfillJobs")

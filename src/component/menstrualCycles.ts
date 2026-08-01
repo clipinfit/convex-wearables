@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation, query } from "./_generated/server";
+import { assertIngestionAllowed } from "./lifecycle";
 import { providerName } from "./schema";
 
 // ---------------------------------------------------------------------------
@@ -78,6 +79,7 @@ export const upsert = internalMutation({
   },
   returns: v.id("menstrualCycles"),
   handler: async (ctx, args) => {
+    await assertIngestionAllowed(ctx, args);
     // Dedup by externalId
     if (args.externalId) {
       const existing = await ctx.db

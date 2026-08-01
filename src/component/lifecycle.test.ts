@@ -1,179 +1,322 @@
+import workflowTest from "@convex-dev/workflow/test";
+import workpoolTest from "@convex-dev/workpool/test";
 import { convexTest } from "convex-test";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { api, internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import schema from "./schema";
 import { modules } from "./test.setup";
 
-describe("lifecycle", () => {
-  describe("deleteAllUserData", () => {
-    it("deletes all data across all tables for a user", async () => {
-      const t = convexTest(schema, modules);
+function createWorkflowTest() {
+  const t = convexTest(schema, modules);
+  t.registerComponent("workflow", workflowTest.schema, workflowTest.modules);
+  workpoolTest.register(t, "workflow/workpool");
+  return t;
+}
 
-      // Seed user-1 data
-      const { connId, dsId } = await t.run(async (ctx) => {
-        const connId = await ctx.db.insert("connections", {
-          userId: "user-1",
-          provider: "garmin",
-          accessToken: "token",
-          status: "active",
-        });
-        const dsId = await ctx.db.insert("dataSources", {
-          userId: "user-1",
-          provider: "garmin",
-          connectionId: connId,
-        });
+const deletionPhases = [
+  "pendingGarminPushPayloads",
+  "dataPoints",
+  "timeSeriesRollups",
+  "timeSeriesSeriesState",
+  "events",
+  "dailySummaries",
+  "menstrualCycles",
+  "syncJobs",
+  "backfillJobs",
+  "oauthStates",
+  "timeSeriesPolicyAssignments",
+  "priorDataDeletionOperations",
+  "dataSources",
+  "connections",
+] as const;
+
+async function runDeletionPrimitives(
+  t: ReturnType<typeof createWorkflowTest>,
+  operationId: Id<"dataDeletionOperations">,
+  workflowId: string,
+) {
+  await t.mutation(internal.lifecycle.prepareDeletionScope, { operationId });
+  for (const phase of deletionPhases) {
+    while (true) {
+      const result = await t.mutation(internal.lifecycle.deleteScopedBatch, {
+        operationId,
+        phase,
+      });
+      if (result.deleted === 0) break;
+    }
+  }
+  const operation = await t.query(api.lifecycle.getDataDeletionOperation, { operationId });
+  await t.mutation(internal.lifecycle.handleDataDeletionComplete, {
+    workflowId,
+    context: { operationId },
+    result: {
+      kind: "success",
+      returnValue: {
+        deletedCounts: operation.deletedCounts,
+        deregistrationStatus: "not_requested",
+      },
+    },
+  });
+}
+
+describe("provider lifecycle and durable deletion", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("deletes one provider in bounded batches and preserves another provider", async () => {
+    const t = createWorkflowTest();
+
+    const { garminSourceId, stravaSourceId } = await t.run(async (ctx) => {
+      const garminConnectionId = await ctx.db.insert("connections", {
+        userId: "user-1",
+        provider: "garmin",
+        accessToken: "garmin-token",
+        status: "active",
+      });
+      const stravaConnectionId = await ctx.db.insert("connections", {
+        userId: "user-1",
+        provider: "strava",
+        accessToken: "strava-token",
+        status: "active",
+      });
+      const garminSourceId = await ctx.db.insert("dataSources", {
+        userId: "user-1",
+        provider: "garmin",
+        connectionId: garminConnectionId,
+      });
+      const stravaSourceId = await ctx.db.insert("dataSources", {
+        userId: "user-1",
+        provider: "strava",
+        connectionId: stravaConnectionId,
+      });
+
+      for (let index = 0; index < 450; index++) {
         await ctx.db.insert("dataPoints", {
-          dataSourceId: dsId,
+          dataSourceId: garminSourceId,
           seriesType: "heart_rate",
-          recordedAt: 1710000000000,
-          value: 72,
+          recordedAt: 1_710_000_000_000 + index,
+          value: 60 + (index % 40),
         });
-        await ctx.db.insert("events", {
-          dataSourceId: dsId,
-          userId: "user-1",
-          category: "workout",
-          type: "running",
-          startDatetime: 1710000000000,
-        });
-        await ctx.db.insert("dailySummaries", {
-          userId: "user-1",
-          date: "2026-03-15",
-          category: "activity",
-          totalSteps: 10000,
-        });
-        await ctx.db.insert("syncJobs", {
-          connectionId: connId,
-          userId: "user-1",
-          provider: "garmin",
-          idempotencyKey: "lifecycle-1",
-          status: "completed",
-          startedAt: 1710000000000,
-        });
-        await ctx.db.insert("backfillJobs", {
-          connectionId: connId,
-          userId: "user-1",
-          provider: "garmin",
-          dataType: "dailies",
-          status: "completed",
-          startedAt: 1710000000000,
-        });
-        return { connId, dsId };
+      }
+      await ctx.db.insert("dataPoints", {
+        dataSourceId: stravaSourceId,
+        seriesType: "heart_rate",
+        recordedAt: 1_710_000_000_000,
+        value: 72,
       });
-
-      // Seed user-2 data (should NOT be deleted)
-      await t.run(async (ctx) => {
-        const c2 = await ctx.db.insert("connections", {
-          userId: "user-2",
-          provider: "strava",
-          accessToken: "token-2",
-          status: "active",
-        });
-        const ds2 = await ctx.db.insert("dataSources", {
-          userId: "user-2",
-          provider: "strava",
-          connectionId: c2,
-        });
-        await ctx.db.insert("events", {
-          dataSourceId: ds2,
-          userId: "user-2",
-          category: "workout",
-          type: "cycling",
-          startDatetime: 1710000000000,
-        });
+      await ctx.db.insert("events", {
+        dataSourceId: garminSourceId,
+        userId: "user-1",
+        category: "workout",
+        startDatetime: 1_710_000_000_000,
       });
-
-      // Delete user-1 data (simulate what lifecycle.deleteAllUserData does)
-      await t.run(async (ctx) => {
-        // Delete backfill jobs
-        const backfills = await ctx.db
-          .query("backfillJobs")
-          .withIndex("by_connection", (idx) => idx.eq("connectionId", connId))
-          .collect();
-        for (const bf of backfills) await ctx.db.delete(bf._id);
-
-        // Delete connections
-        const conns = await ctx.db
-          .query("connections")
-          .withIndex("by_user", (idx) => idx.eq("userId", "user-1"))
-          .collect();
-        for (const c of conns) await ctx.db.delete(c._id);
-
-        // Delete data points
-        const points = await ctx.db
-          .query("dataPoints")
-          .withIndex("by_source_type_time", (idx) => idx.eq("dataSourceId", dsId))
-          .collect();
-        for (const p of points) await ctx.db.delete(p._id);
-
-        // Delete data sources
-        const sources = await ctx.db
-          .query("dataSources")
-          .withIndex("by_user_provider", (idx) => idx.eq("userId", "user-1"))
-          .collect();
-        for (const s of sources) await ctx.db.delete(s._id);
-
-        // Delete events
-        const events = await ctx.db
-          .query("events")
-          .withIndex("by_user_category_time", (idx) => idx.eq("userId", "user-1"))
-          .collect();
-        for (const e of events) await ctx.db.delete(e._id);
-
-        // Delete summaries
-        const summaries = await ctx.db
-          .query("dailySummaries")
-          .withIndex("by_user_date", (idx) => idx.eq("userId", "user-1"))
-          .collect();
-        for (const s of summaries) await ctx.db.delete(s._id);
-
-        // Delete sync jobs
-        const jobs = await ctx.db
-          .query("syncJobs")
-          .withIndex("by_user", (idx) => idx.eq("userId", "user-1"))
-          .collect();
-        for (const j of jobs) await ctx.db.delete(j._id);
+      await ctx.db.insert("events", {
+        dataSourceId: stravaSourceId,
+        userId: "user-1",
+        category: "workout",
+        startDatetime: 1_710_000_100_000,
       });
-
-      // Verify user-1 data is gone
-      const user1Conns = await t.run(async (ctx) => {
-        return await ctx.db
-          .query("connections")
-          .withIndex("by_user", (idx) => idx.eq("userId", "user-1"))
-          .collect();
+      await ctx.db.insert("dailySummaries", {
+        userId: "user-1",
+        provider: "garmin",
+        dataSourceId: garminSourceId,
+        date: "2026-07-31",
+        category: "activity",
       });
-      expect(user1Conns).toHaveLength(0);
-
-      const user1Events = await t.run(async (ctx) => {
-        return await ctx.db
-          .query("events")
-          .withIndex("by_user_category_time", (idx) => idx.eq("userId", "user-1"))
-          .collect();
+      await ctx.db.insert("dailySummaries", {
+        userId: "user-1",
+        provider: "strava",
+        dataSourceId: stravaSourceId,
+        date: "2026-07-31",
+        category: "activity",
       });
-      expect(user1Events).toHaveLength(0);
-
-      const user1Summaries = await t.run(async (ctx) => {
-        return await ctx.db
-          .query("dailySummaries")
-          .withIndex("by_user_date", (idx) => idx.eq("userId", "user-1"))
-          .collect();
-      });
-      expect(user1Summaries).toHaveLength(0);
-
-      // Verify user-2 data is intact
-      const user2Conns = await t.run(async (ctx) => {
-        return await ctx.db
-          .query("connections")
-          .withIndex("by_user", (idx) => idx.eq("userId", "user-2"))
-          .collect();
-      });
-      expect(user2Conns).toHaveLength(1);
-
-      const user2Events = await t.run(async (ctx) => {
-        return await ctx.db
-          .query("events")
-          .withIndex("by_user_category_time", (idx) => idx.eq("userId", "user-2"))
-          .collect();
-      });
-      expect(user2Events).toHaveLength(1);
+      return { garminSourceId, stravaSourceId };
     });
+
+    const started = await t.mutation(api.lifecycle.startProviderDataDeletion, {
+      userId: "user-1",
+      provider: "garmin",
+      idempotencyKey: "remove-garmin-1",
+    });
+
+    await runDeletionPrimitives(t, started.operationId, started.workflowId);
+
+    const operation = await t.query(api.lifecycle.getDataDeletionOperation, {
+      operationId: started.operationId,
+    });
+    expect(operation.status).toBe("completed");
+    expect(operation.deletedCounts.dataPoints).toBe(450);
+
+    await t.run(async (ctx) => {
+      expect(await ctx.db.get(garminSourceId)).toBeNull();
+      expect(await ctx.db.get(stravaSourceId)).not.toBeNull();
+
+      const garminConnections = await ctx.db
+        .query("connections")
+        .withIndex("by_user_provider", (index) =>
+          index.eq("userId", "user-1").eq("provider", "garmin"),
+        )
+        .collect();
+      const stravaConnections = await ctx.db
+        .query("connections")
+        .withIndex("by_user_provider", (index) =>
+          index.eq("userId", "user-1").eq("provider", "strava"),
+        )
+        .collect();
+      expect(garminConnections).toHaveLength(0);
+      expect(stravaConnections).toHaveLength(1);
+
+      const stravaPoints = await ctx.db
+        .query("dataPoints")
+        .withIndex("by_source_type_time", (index) => index.eq("dataSourceId", stravaSourceId))
+        .collect();
+      expect(stravaPoints).toHaveLength(1);
+    });
+  });
+
+  it("deduplicates starts and fences only the matching provider", async () => {
+    const t = createWorkflowTest();
+    const garminConnectionId = await t.run(
+      async (ctx) =>
+        await ctx.db.insert("connections", {
+          userId: "user-1",
+          provider: "garmin",
+          providerUserId: "garmin-user",
+          status: "active",
+        }),
+    );
+
+    const first = await t.mutation(api.lifecycle.startProviderDataDeletion, {
+      userId: "user-1",
+      provider: "garmin",
+      idempotencyKey: "remove-garmin-1",
+    });
+    const duplicate = await t.mutation(api.lifecycle.startProviderDataDeletion, {
+      userId: "user-1",
+      provider: "garmin",
+      idempotencyKey: "remove-garmin-1",
+    });
+
+    expect(duplicate.operationId).toBe(first.operationId);
+    expect(duplicate.workflowId).toBe(first.workflowId);
+    expect(duplicate.deduped).toBe(true);
+
+    await expect(
+      t.mutation(internal.connections.ensurePushConnection, {
+        userId: "user-1",
+        provider: "garmin",
+      }),
+    ).rejects.toThrow("ingestion is blocked");
+
+    await expect(
+      t.mutation(internal.garminBackfill.requestGarminBackfill, {
+        connectionId: garminConnectionId,
+        windowStart: 1_000,
+        windowEnd: 2_000,
+      }),
+    ).rejects.toThrow("ingestion is blocked");
+
+    await expect(
+      t.mutation(internal.garminWebhooks.storePendingPayload, {
+        connectionId: garminConnectionId,
+        userId: "user-1",
+        providerUserId: "garmin-user",
+        garminClientId: "client",
+        payloadJson: "{}",
+        receivedAt: 1_000,
+        expiresAt: 2_000,
+      }),
+    ).rejects.toThrow("ingestion is blocked");
+
+    const stravaConnectionId = await t.mutation(internal.connections.ensurePushConnection, {
+      userId: "user-1",
+      provider: "strava",
+    });
+    expect(stravaConnectionId).toBeDefined();
+  });
+
+  it("deletes all user data but keeps the terminal operation available", async () => {
+    const t = createWorkflowTest();
+    await t.run(async (ctx) => {
+      const connectionId = await ctx.db.insert("connections", {
+        userId: "user-1",
+        provider: "strava",
+        status: "active",
+      });
+      await ctx.db.insert("dataSources", {
+        userId: "user-1",
+        provider: "strava",
+        connectionId,
+      });
+      await ctx.db.insert("oauthStates", {
+        state: "state-1",
+        userId: "user-1",
+        provider: "strava",
+        createdAt: Date.now(),
+      });
+      await ctx.db.insert("timeSeriesPolicyAssignments", {
+        userId: "user-1",
+        presetKey: "short",
+        updatedAt: Date.now(),
+      });
+    });
+
+    const started = await t.mutation(api.lifecycle.startUserDataDeletion, {
+      userId: "user-1",
+      idempotencyKey: "delete-user-1",
+    });
+    await runDeletionPrimitives(t, started.operationId, started.workflowId);
+
+    const operation = await t.query(api.lifecycle.getDataDeletionOperation, {
+      operationId: started.operationId,
+    });
+    expect(operation.status).toBe("completed");
+    expect(operation.deletedCounts.connections).toBe(1);
+    expect(operation.deletedCounts.oauthStates).toBe(1);
+    expect(operation.deletedCounts.timeSeriesPolicyAssignments).toBe(1);
+
+    await t.run(async (ctx) => {
+      const connections = await ctx.db
+        .query("connections")
+        .withIndex("by_user", (index) => index.eq("userId", "user-1"))
+        .collect();
+      expect(connections).toHaveLength(0);
+      expect(await ctx.db.get(started.operationId)).not.toBeNull();
+    });
+  });
+
+  it("releases the ingestion fence when an operation is explicitly canceled", async () => {
+    const t = createWorkflowTest();
+    const started = await t.mutation(api.lifecycle.startProviderDataDeletion, {
+      userId: "user-1",
+      provider: "garmin",
+      idempotencyKey: "cancel-garmin-1",
+    });
+
+    await t.mutation(api.lifecycle.cancelDataDeletion, {
+      operationId: started.operationId,
+    });
+
+    const operation = await t.query(api.lifecycle.getDataDeletionOperation, {
+      operationId: started.operationId,
+    });
+    expect(operation.status).toBe("canceled");
+
+    const connectionId = await t.mutation(internal.connections.ensurePushConnection, {
+      userId: "user-1",
+      provider: "garmin",
+    });
+    expect(connectionId).toBeDefined();
+  });
+
+  it("summarizes remote deregistration outcomes", async () => {
+    const { summarizeDeregistrationResults } = await import("./lifecycle");
+    expect(summarizeDeregistrationResults([])).toBe("completed");
+    expect(summarizeDeregistrationResults([{ status: "unsupported" }])).toBe("unsupported");
+    expect(summarizeDeregistrationResults([{ status: "completed" }, { status: "failed" }])).toBe(
+      "partially_completed",
+    );
+    expect(summarizeDeregistrationResults([{ status: "failed" }])).toBe("failed");
   });
 });

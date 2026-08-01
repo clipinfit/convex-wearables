@@ -6,7 +6,45 @@
 
 import type { OAuthProviderConfig, OAuthTokenResponse } from "./types";
 
-export type ProviderApiOperation = "token_exchange" | "token_refresh" | "api_request";
+export type ProviderApiOperation =
+  | "token_exchange"
+  | "token_refresh"
+  | "api_request"
+  | "deregister";
+
+/**
+ * Make a provider deregistration request without exposing response bodies in
+ * errors. Callers may safely retry failures classified as retryable.
+ */
+export async function makeDeregistrationRequest(args: {
+  url: string;
+  accessToken: string;
+  method: "DELETE" | "POST";
+  headers?: Record<string, string>;
+  form?: Record<string, string>;
+}): Promise<void> {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${args.accessToken}`,
+    Accept: "application/json",
+    ...args.headers,
+  };
+  const body = args.form ? new URLSearchParams(args.form).toString() : undefined;
+  if (body) headers["Content-Type"] = "application/x-www-form-urlencoded";
+
+  const response = await fetch(args.url, {
+    method: args.method,
+    headers,
+    body,
+  });
+
+  if (!response.ok) {
+    throw new ProviderApiError({
+      message: `Provider deregistration failed with HTTP ${response.status}`,
+      operation: "deregister",
+      status: response.status,
+    });
+  }
+}
 
 /**
  * Structured provider failure used to make connection lifecycle decisions

@@ -10,6 +10,7 @@ import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { action, internalAction, internalMutation } from "./_generated/server";
+import { assertIngestionAllowed } from "./lifecycle";
 import { isProviderApiError } from "./providers/oauth";
 import { getProvider } from "./providers/registry";
 import type {
@@ -219,6 +220,7 @@ export const requestConnectionSync = internalMutation({
     if (connection.status !== "active") {
       throw new Error(`Connection ${args.connectionId} is not active`);
     }
+    await assertIngestionAllowed(ctx, connection);
     if (!getProvider(connection.provider)) {
       throw new Error(`Provider "${connection.provider}" does not support pull synchronization`);
     }

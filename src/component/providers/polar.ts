@@ -2,7 +2,7 @@
  * Polar provider adapter — OAuth 2.0 + workout pull flow.
  */
 
-import { makeAuthenticatedRequest } from "./oauth";
+import { makeAuthenticatedRequest, makeDeregistrationRequest } from "./oauth";
 import type {
   NormalizedEvent,
   OAuthProviderConfig,
@@ -215,6 +215,16 @@ export const polarProvider: ProviderAdapter = {
     if (appUserId) {
       await registerMember(accessToken, appUserId);
     }
+  },
+  deregisterUser: async (accessToken, providerUserId) => {
+    if (!providerUserId) {
+      throw new Error("Polar deregistration requires providerUserId");
+    }
+    await makeDeregistrationRequest({
+      url: `${POLAR_API_BASE}/v3/users/${encodeURIComponent(providerUserId)}`,
+      accessToken,
+      method: "DELETE",
+    });
   },
   fetchEvents: fetchPolarWorkouts,
 };

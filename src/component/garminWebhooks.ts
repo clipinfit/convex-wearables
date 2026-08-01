@@ -15,6 +15,7 @@ import {
   internalMutation,
   internalQuery,
 } from "./_generated/server";
+import { assertIngestionAllowed } from "./lifecycle";
 import {
   type GarminPushPayload,
   normalizeActivity,
@@ -542,6 +543,7 @@ export const storePendingPayload = internalMutation({
   },
   returns: v.id("pendingGarminPushPayloads"),
   handler: async (ctx, args) => {
+    await assertIngestionAllowed(ctx, { userId: args.userId, provider: "garmin" });
     return await ctx.db.insert("pendingGarminPushPayloads", {
       ...args,
       status: "pending",

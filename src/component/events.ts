@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery, query } from "./_generated/server";
+import { assertIngestionAllowed } from "./lifecycle";
 import { eventCategory } from "./schema";
 
 // ---------------------------------------------------------------------------
@@ -177,6 +178,8 @@ export const storeEvent = internalMutation({
   },
   returns: v.id("events"),
   handler: async (ctx, args) => {
+    const source = await ctx.db.get(args.dataSourceId);
+    await assertIngestionAllowed(ctx, { userId: args.userId, provider: source?.provider });
     // Deduplicate by externalId
     if (args.externalId) {
       const existing = await ctx.db
@@ -222,6 +225,11 @@ export const storeEventBatch = internalMutation({
   handler: async (ctx, args) => {
     const ids: Id<"events">[] = [];
     for (const event of args.events) {
+      const source = await ctx.db.get(event.dataSourceId as Id<"dataSources">);
+      await assertIngestionAllowed(ctx, {
+        userId: event.userId,
+        provider: source?.provider,
+      });
       // Deduplicate by externalId
       if (event.externalId) {
         const existing = await ctx.db

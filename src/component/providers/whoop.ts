@@ -1,4 +1,4 @@
-import { makeAuthenticatedRequest } from "./oauth";
+import { makeAuthenticatedRequest, makeDeregistrationRequest } from "./oauth";
 import type {
   NormalizedDailySummary,
   NormalizedDataPoint,
@@ -582,6 +582,13 @@ export const whoopProvider: ProviderAdapter = {
   name: "whoop",
   oauthConfig: whoopOAuthConfig,
   getUserInfo: async (accessToken) => fetchWhoopUserInfo(accessToken),
+  deregisterUser: async (accessToken) => {
+    await makeDeregistrationRequest({
+      url: "https://api.prod.whoop.com/developer/v2/user/access",
+      accessToken,
+      method: "DELETE",
+    });
+  },
   fetchEvents: async (accessToken, startDate, endDate) => {
     const workouts = await fetchWhoopWorkouts(accessToken, startDate, endDate);
     const sleeps = await fetchWhoopSleep(accessToken, startDate, endDate);

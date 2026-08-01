@@ -47,6 +47,113 @@ describe("sdk route helpers", () => {
   });
 });
 
+describe("durable deletion client API", () => {
+  it("forwards lifecycle mutations, queries, and provider deregistration", async () => {
+    const component = {
+      lifecycle: {
+        startProviderDataDeletion: "startProviderDataDeletion",
+        startUserDataDeletion: "startUserDataDeletion",
+        getDataDeletionOperation: "getDataDeletionOperation",
+        getActiveDataDeletionOperation: "getActiveDataDeletionOperation",
+        retryDataDeletion: "retryDataDeletion",
+        cancelDataDeletion: "cancelDataDeletion",
+        cleanupDataDeletionOperation: "cleanupDataDeletionOperation",
+        deregisterProvider: "deregisterProvider",
+      },
+    } as unknown as WearablesComponent;
+    const client = new WearablesClient(component, { providers: {} });
+    const calls: Array<{ kind: string; ref: unknown; args: unknown }> = [];
+    const mutationCtx: Parameters<WearablesClient["startProviderDataDeletion"]>[0] = {
+      runMutation: async (...callArgs: unknown[]) => {
+        const [ref, args] = callArgs;
+        calls.push({ kind: "mutation", ref, args });
+        if (ref === "startProviderDataDeletion" || ref === "startUserDataDeletion") {
+          return {
+            operationId: "operation-1",
+            workflowId: "workflow-1",
+            deduped: false,
+          } as never;
+        }
+        return null as never;
+      },
+    };
+    const queryCtx: Parameters<WearablesClient["getDataDeletionOperation"]>[0] = {
+      runQuery: async (...callArgs: unknown[]) => {
+        const [ref, args] = callArgs;
+        calls.push({ kind: "query", ref, args });
+        return null as never;
+      },
+    };
+    const actionCtx: Parameters<WearablesClient["deregisterProvider"]>[0] = {
+      runAction: async (...callArgs: unknown[]) => {
+        const [ref, args] = callArgs;
+        calls.push({ kind: "action", ref, args });
+        return { connectionFound: true, status: "completed" } as never;
+      },
+    };
+
+    await client.startProviderDataDeletion(mutationCtx, {
+      userId: "user-1",
+      provider: "garmin",
+      idempotencyKey: "remove-garmin",
+      deregister: true,
+    });
+    await client.startUserDataDeletion(mutationCtx, {
+      userId: "user-1",
+      idempotencyKey: "remove-user",
+    });
+    await client.getDataDeletionOperation(queryCtx, { operationId: "operation-1" });
+    await client.getActiveDataDeletionOperation(queryCtx, {
+      userId: "user-1",
+      provider: "garmin",
+    });
+    await client.retryDataDeletion(mutationCtx, { operationId: "operation-1" });
+    await client.cancelDataDeletion(mutationCtx, { operationId: "operation-1" });
+    await client.cleanupDataDeletionOperation(mutationCtx, { operationId: "operation-1" });
+    await client.deregisterProvider(actionCtx, { userId: "user-1", provider: "garmin" });
+
+    expect(calls).toEqual([
+      {
+        kind: "mutation",
+        ref: "startProviderDataDeletion",
+        args: {
+          userId: "user-1",
+          provider: "garmin",
+          idempotencyKey: "remove-garmin",
+          deregister: true,
+        },
+      },
+      {
+        kind: "mutation",
+        ref: "startUserDataDeletion",
+        args: { userId: "user-1", idempotencyKey: "remove-user" },
+      },
+      {
+        kind: "query",
+        ref: "getDataDeletionOperation",
+        args: { operationId: "operation-1" },
+      },
+      {
+        kind: "query",
+        ref: "getActiveDataDeletionOperation",
+        args: { userId: "user-1", provider: "garmin" },
+      },
+      { kind: "mutation", ref: "retryDataDeletion", args: { operationId: "operation-1" } },
+      { kind: "mutation", ref: "cancelDataDeletion", args: { operationId: "operation-1" } },
+      {
+        kind: "mutation",
+        ref: "cleanupDataDeletionOperation",
+        args: { operationId: "operation-1" },
+      },
+      {
+        kind: "action",
+        ref: "deregisterProvider",
+        args: { userId: "user-1", provider: "garmin" },
+      },
+    ]);
+  });
+});
+
 describe("package exports", () => {
   it("re-exports standalone http handlers from the package root", () => {
     expect(typeof oauthCallback).toBe("function");

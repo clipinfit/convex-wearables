@@ -29,6 +29,73 @@ export type SyncJobStatus = "queued" | "running" | "completed" | "failed" | "can
 
 export type BackfillJobStatus = "queued" | "running" | "completed" | "failed" | "canceled";
 
+export type DataDeletionScope = "provider" | "user";
+
+export type DataDeletionStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "completed_with_warnings"
+  | "failed"
+  | "canceled";
+
+export type ProviderDeregistrationStatus =
+  | "not_requested"
+  | "pending"
+  | "completed"
+  | "partially_completed"
+  | "unsupported"
+  | "failed";
+
+export interface DataDeletionCounts {
+  connections: number;
+  dataSources: number;
+  dataPoints: number;
+  timeSeriesRollups: number;
+  timeSeriesSeriesState: number;
+  events: number;
+  dailySummaries: number;
+  menstrualCycles: number;
+  syncJobs: number;
+  backfillJobs: number;
+  oauthStates: number;
+  pendingGarminPushPayloads: number;
+  timeSeriesPolicyAssignments: number;
+  priorDataDeletionOperations: number;
+}
+
+export interface DataDeletionOperation {
+  _id: string;
+  _creationTime: number;
+  userId: string;
+  scope: DataDeletionScope;
+  provider?: ProviderName;
+  idempotencyKey: string;
+  workflowId?: string;
+  status: DataDeletionStatus;
+  currentPhase?: string;
+  requestedDeregistration: boolean;
+  deregistrationStatus: ProviderDeregistrationStatus;
+  deletedCounts: DataDeletionCounts;
+  errorCode?: string;
+  errorMessage?: string;
+  createdAt: number;
+  updatedAt: number;
+  completedAt?: number;
+}
+
+export interface StartDataDeletionResult {
+  operationId: string;
+  workflowId: string;
+  deduped: boolean;
+}
+
+export interface ProviderDeregistrationResult {
+  connectionFound: boolean;
+  status: "completed" | "unsupported" | "failed";
+  errorCode?: string;
+}
+
 export type DurationInput = string | number;
 
 export type TimeSeriesRollupAggregation = "avg" | "min" | "max" | "last" | "count";

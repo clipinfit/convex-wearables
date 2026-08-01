@@ -13,7 +13,7 @@
  * - Body composition normalization
  */
 
-import { makeAuthenticatedRequest } from "./oauth";
+import { makeAuthenticatedRequest, makeDeregistrationRequest } from "./oauth";
 import type {
   NormalizedDailySummary,
   NormalizedDataPoint,
@@ -1116,6 +1116,13 @@ export const garminProvider: ProviderAdapter = {
   name: "garmin",
   oauthConfig: garminOAuthConfig,
   getUserInfo: getGarminUserInfo,
+  deregisterUser: async (accessToken) => {
+    await makeDeregistrationRequest({
+      url: `${API_BASE}/partner-gateway/rest/user/registration`,
+      accessToken,
+      method: "DELETE",
+    });
+  },
   fetchEvents: fetchGarminWorkouts,
 };
 

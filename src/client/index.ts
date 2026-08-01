@@ -26,6 +26,10 @@ import type {
   Connection,
   CredentialedProviderName,
   DailySummary,
+  DataDeletionCounts,
+  DataDeletionOperation,
+  DataDeletionScope,
+  DataDeletionStatus,
   DataPoint,
   EffectiveTimeSeriesPolicy,
   EventCategory,
@@ -37,6 +41,8 @@ import type {
   ProviderCapabilityInfo,
   ProviderConfiguration,
   ProviderCredentials,
+  ProviderDeregistrationResult,
+  ProviderDeregistrationStatus,
   ProviderName,
   RegisterRoutesConfig,
   SdkPushDataPoint,
@@ -47,6 +53,7 @@ import type {
   SdkSyncPayload,
   SeedSyntheticDataInput,
   SeedSyntheticDataResult,
+  StartDataDeletionResult,
   SyncJob,
   SyncStatus,
   SyntheticDataClearCounts,
@@ -89,6 +96,10 @@ export type {
   Connection,
   CredentialedProviderName,
   DailySummary,
+  DataDeletionCounts,
+  DataDeletionOperation,
+  DataDeletionScope,
+  DataDeletionStatus,
   DataPoint,
   EffectiveTimeSeriesPolicy,
   EventCategory,
@@ -100,6 +111,8 @@ export type {
   ProviderCapabilityInfo,
   ProviderConfiguration,
   ProviderCredentials,
+  ProviderDeregistrationResult,
+  ProviderDeregistrationStatus,
   ProviderName,
   RegisterRoutesConfig,
   SdkPushDataPoint,
@@ -110,6 +123,7 @@ export type {
   SdkSyncPayload,
   SeedSyntheticDataInput,
   SeedSyntheticDataResult,
+  StartDataDeletionResult,
   SyncJob,
   SyncStatus,
   SyntheticDataClearCounts,
@@ -637,7 +651,83 @@ export class WearablesClient {
   // -----------------------------------------------------------------------
 
   /**
-   * Delete all data for a user (GDPR compliance, account deletion).
+   * Start a durable provider-scoped data deletion.
+   *
+   * Provider deregistration is explicit and disabled by default. Use the
+   * returned operation ID to observe completion.
+   */
+  async startProviderDataDeletion(
+    ctx: MutationRunner,
+    args: {
+      userId: string;
+      provider: ProviderName;
+      idempotencyKey: string;
+      deregister?: boolean;
+    },
+  ): Promise<StartDataDeletionResult> {
+    return await ctx.runMutation(this.component.lifecycle.startProviderDataDeletion, args);
+  }
+
+  /** Start a durable deletion of all wearable data for a component user. */
+  async startUserDataDeletion(
+    ctx: MutationRunner,
+    args: {
+      userId: string;
+      idempotencyKey: string;
+      deregisterProviders?: boolean;
+    },
+  ): Promise<StartDataDeletionResult> {
+    return await ctx.runMutation(this.component.lifecycle.startUserDataDeletion, args);
+  }
+
+  /** Get one durable deletion operation and its aggregate progress. */
+  async getDataDeletionOperation(
+    ctx: QueryRunner,
+    args: { operationId: string },
+  ): Promise<DataDeletionOperation | null> {
+    return await ctx.runQuery(this.component.lifecycle.getDataDeletionOperation, args);
+  }
+
+  /** Find the deletion operation currently fencing a user/provider scope. */
+  async getActiveDataDeletionOperation(
+    ctx: QueryRunner,
+    args: { userId: string; provider?: ProviderName },
+  ): Promise<DataDeletionOperation | null> {
+    return await ctx.runQuery(this.component.lifecycle.getActiveDataDeletionOperation, args);
+  }
+
+  /** Retry a failed deletion while preserving its operation and Workflow history. */
+  async retryDataDeletion(ctx: MutationRunner, args: { operationId: string }): Promise<null> {
+    return await ctx.runMutation(this.component.lifecycle.retryDataDeletion, args);
+  }
+
+  /** Stop future deletion batches. Already deleted records cannot be restored. */
+  async cancelDataDeletion(ctx: MutationRunner, args: { operationId: string }): Promise<null> {
+    return await ctx.runMutation(this.component.lifecycle.cancelDataDeletion, args);
+  }
+
+  /** Remove a terminal operation and its completed Workflow history. */
+  async cleanupDataDeletionOperation(
+    ctx: MutationRunner,
+    args: { operationId: string },
+  ): Promise<null> {
+    return await ctx.runMutation(this.component.lifecycle.cleanupDataDeletionOperation, args);
+  }
+
+  /**
+   * Revoke access at a supported provider, then clear the local connection.
+   * Local disconnect still occurs when remote deregistration fails.
+   */
+  async deregisterProvider(
+    ctx: ActionRunner,
+    args: { userId: string; provider: ProviderName },
+  ): Promise<ProviderDeregistrationResult> {
+    return await ctx.runAction(this.component.lifecycle.deregisterProvider, args);
+  }
+
+  /**
+   * @deprecated Use startUserDataDeletion. This synchronous compatibility
+   * helper can exceed Convex execution limits for large accounts.
    */
   async deleteAllUserData(ctx: MutationRunner, args: { userId: string }) {
     return await ctx.runMutation(this.component.lifecycle.deleteAllUserData, {

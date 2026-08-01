@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { assertIngestionAllowed } from "./lifecycle";
 import { connectionStatus, providerName } from "./schema";
 
 // ---------------------------------------------------------------------------
@@ -159,6 +160,7 @@ export const createConnection = internalMutation({
   },
   returns: v.id("connections"),
   handler: async (ctx, args) => {
+    await assertIngestionAllowed(ctx, args);
     // Check if connection already exists
     const existing = await ctx.db
       .query("connections")
@@ -196,6 +198,7 @@ export const ensurePushConnection = internalMutation({
   },
   returns: v.id("connections"),
   handler: async (ctx, args) => {
+    await assertIngestionAllowed(ctx, args);
     const existing = await ctx.db
       .query("connections")
       .withIndex("by_user_provider", (idx) =>

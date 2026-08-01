@@ -167,6 +167,12 @@ export interface ProviderAdapter {
     appUserId: string,
     credentials?: ProviderCredentials,
   ): Promise<void>;
+  /** Optional provider-side token revocation or user deregistration. */
+  deregisterUser?(
+    accessToken: string,
+    providerUserId?: string,
+    credentials?: ProviderCredentials,
+  ): Promise<void>;
   /** Fetch provider events (workouts, sleep). */
   fetchEvents?(
     accessToken: string,

@@ -9,6 +9,7 @@ import {
   mutation,
   query,
 } from "./_generated/server";
+import { assertIngestionAllowed } from "./lifecycle";
 import { providerName, timeSeriesAggregation } from "./schema";
 import {
   buildBuiltinFullTiers,
@@ -558,6 +559,9 @@ export const storeDataPoint = internalMutation({
   },
   returns: v.union(v.id("dataPoints"), v.null()),
   handler: async (ctx, args) => {
+    const source = await ctx.db.get(args.dataSourceId);
+    if (!source) throw new Error(`Data source ${args.dataSourceId} not found`);
+    await assertIngestionAllowed(ctx, source);
     const result = await storePointsWithPolicy(ctx, {
       dataSourceId: args.dataSourceId,
       seriesType: args.seriesType,
@@ -588,6 +592,9 @@ export const storeBatch = internalMutation({
   },
   returns: v.number(),
   handler: async (ctx, args) => {
+    const source = await ctx.db.get(args.dataSourceId);
+    if (!source) throw new Error(`Data source ${args.dataSourceId} not found`);
+    await assertIngestionAllowed(ctx, source);
     const result = await storePointsWithPolicy(ctx, args);
     return result.processedCount;
   },

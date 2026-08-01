@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation, mutation, query } from "./_generated/server";
+import { assertIngestionAllowed } from "./lifecycle";
 import { providerName } from "./schema";
 
 // ---------------------------------------------------------------------------
@@ -60,6 +61,7 @@ export const getOrCreate = mutation({
   },
   returns: v.id("dataSources"),
   handler: async (ctx, args) => {
+    await assertIngestionAllowed(ctx, args);
     // Look for existing data source matching this user/provider/device/source
     const existing = await ctx.db
       .query("dataSources")

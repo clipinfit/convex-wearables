@@ -74,6 +74,44 @@ Garmin route, so this does not require an app change there.
 Recommended release classification: minor while the package is pre-1.0 because
 it adds public sync configuration. There is no data migration.
 
+## Version 0.8.0: durable provider and user deletion
+
+Version `0.8.0` replaces the large-account deletion path with explicit,
+Workflow-backed lifecycle APIs. It also supports optional provider-side
+deregistration for Garmin, Strava, Polar, and WHOOP.
+
+Migration assessment:
+
+- The component schema adds `dataDeletionOperations` and indexes for operation
+  lookup, OAuth state cleanup, and provider attribution of legacy summaries.
+- Existing documents need no rewrite.
+- Hosts must deploy the component schema before calling the new APIs.
+- `disconnect` remains local and non-destructive.
+- Provider deregistration is opt-in and disabled by default on deletion calls.
+- `deleteAllUserData` remains available but is deprecated because its
+  synchronous execution can exceed Convex limits for large accounts.
+
+Recommended existing-host upgrade:
+
+1. Update the package and deploy the additive schema.
+2. Replace `deleteAllUserData` with `startUserDataDeletion`.
+3. Store or return the operation ID and observe it with
+   `getDataDeletionOperation`.
+4. Treat `completed` and `completed_with_warnings` as successful local
+   deletion outcomes according to the host product's policy.
+5. Retry `failed` operations or explicitly cancel them. Failed operations keep
+   their ingestion fence to prevent partially deleted data from returning.
+6. Remove terminal operation and Workflow history with
+   `cleanupDataDeletionOperation` after the result is no longer needed.
+
+Provider-scoped deletion preserves other provider data. Whole-user deletion
+also removes Synthetic data, user retention-policy assignments, and earlier
+deletion-operation records. Deployment-wide provider credentials and global
+storage-policy configuration are preserved.
+
+Recommended release classification: minor. All APIs and schema changes are
+additive, and existing connection/disconnect behavior remains compatible.
+
 ## Provider-aware daily summaries
 
 The provider-aware daily summaries release adds provider provenance to

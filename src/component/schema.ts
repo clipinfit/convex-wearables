@@ -55,6 +55,29 @@ export const backfillStatus = v.union(
 );
 
 /**
+ * Durable health-data deletion operation scope and status.
+ */
+export const dataDeletionScope = v.union(v.literal("provider"), v.literal("user"));
+
+export const dataDeletionStatus = v.union(
+  v.literal("pending"),
+  v.literal("running"),
+  v.literal("completed"),
+  v.literal("completed_with_warnings"),
+  v.literal("failed"),
+  v.literal("canceled"),
+);
+
+export const providerDeregistrationStatus = v.union(
+  v.literal("not_requested"),
+  v.literal("pending"),
+  v.literal("completed"),
+  v.literal("partially_completed"),
+  v.literal("unsupported"),
+  v.literal("failed"),
+);
+
+/**
  * Supported rollup aggregations.
  */
 export const timeSeriesAggregation = v.union(
@@ -249,7 +272,8 @@ export default defineSchema({
     .index("by_user_provider_category_date", ["userId", "provider", "category", "date"])
     .index("by_user_provider_date", ["userId", "provider", "date"])
     .index("by_user_category_date", ["userId", "category", "date"])
-    .index("by_user_date", ["userId", "date"]),
+    .index("by_user_date", ["userId", "date"])
+    .index("by_data_source", ["dataSourceId"]),
 
   // -------------------------------------------------------------------------
   // Sync Jobs — workflow tracking for data syncs
@@ -294,7 +318,9 @@ export default defineSchema({
     codeVerifier: v.optional(v.string()), // PKCE
     redirectUri: v.optional(v.string()),
     createdAt: v.number(), // unix ms
-  }).index("by_state", ["state"]),
+  })
+    .index("by_state", ["state"])
+    .index("by_user_provider", ["userId", "provider"]),
 
   // -------------------------------------------------------------------------
   // Provider Settings — which providers are enabled + config
@@ -474,4 +500,43 @@ export default defineSchema({
     .index("by_connection_type", ["connectionId", "dataType"])
     .index("by_status", ["status"])
     .index("by_workflow", ["workflowId"]),
+
+  // -------------------------------------------------------------------------
+  // Data Deletion Operations — stable domain state for durable Workflow runs
+  // -------------------------------------------------------------------------
+  dataDeletionOperations: defineTable({
+    userId: v.string(),
+    scope: dataDeletionScope,
+    provider: v.optional(providerName),
+    idempotencyKey: v.string(),
+    workflowId: v.optional(v.string()),
+    status: dataDeletionStatus,
+    currentPhase: v.optional(v.string()),
+    requestedDeregistration: v.boolean(),
+    deregistrationStatus: providerDeregistrationStatus,
+    deletedCounts: v.object({
+      connections: v.number(),
+      dataSources: v.number(),
+      dataPoints: v.number(),
+      timeSeriesRollups: v.number(),
+      timeSeriesSeriesState: v.number(),
+      events: v.number(),
+      dailySummaries: v.number(),
+      menstrualCycles: v.number(),
+      syncJobs: v.number(),
+      backfillJobs: v.number(),
+      oauthStates: v.number(),
+      pendingGarminPushPayloads: v.number(),
+      timeSeriesPolicyAssignments: v.number(),
+      priorDataDeletionOperations: v.number(),
+    }),
+    errorCode: v.optional(v.string()),
+    errorMessage: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_user_created_at", ["userId", "createdAt"])
+    .index("by_user_status", ["userId", "status"])
+    .index("by_user_idempotency_key", ["userId", "idempotencyKey"]),
 });

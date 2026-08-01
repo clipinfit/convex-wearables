@@ -4,7 +4,7 @@
  * Fetches activities from Strava API and normalizes them to our event format.
  */
 
-import { makeAuthenticatedRequest } from "./oauth";
+import { makeAuthenticatedRequest, makeDeregistrationRequest } from "./oauth";
 import type {
   NormalizedEvent,
   OAuthProviderConfig,
@@ -249,5 +249,22 @@ export const stravaProvider: ProviderAdapter = {
   name: "strava",
   oauthConfig: stravaOAuthConfig,
   getUserInfo: getStravaUserInfo,
+  deregisterUser: async (accessToken, _providerUserId, credentials) => {
+    if (!credentials) {
+      throw new Error("Strava deregistration requires provider credentials");
+    }
+    await makeDeregistrationRequest({
+      url: "https://www.strava.com/oauth/revoke",
+      accessToken,
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${btoa(`${credentials.clientId}:${credentials.clientSecret}`)}`,
+      },
+      form: {
+        token: accessToken,
+        token_type_hint: "access_token",
+      },
+    });
+  },
   fetchEvents: fetchStravaWorkouts,
 };

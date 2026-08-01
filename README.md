@@ -17,7 +17,7 @@ Built as a drop-in module: install the component, pass your provider credentials
 - **Configurable time-series storage policy** — keep full raw data, retain recent raw + historical rollups, or store rollups only
 - **Deduplication** — events and data points are deduped by external ID and source+timestamp
 - **Precomputed daily summaries** — activity, sleep, recovery, and body composition aggregates
-- **GDPR-ready** — cascading user data deletion in a single call
+- **Durable data lifecycle** — explicit disconnect, provider deregistration, and resumable provider/user deletion workflows
 - **Webhook + SDK push support** — Garmin webhooks plus normalized mobile SDK ingestion for Apple Health / Google Health Connect
 - **Synthetic provider** — deterministic, explicitly enabled wearable fixtures using the same normalized model
 - **Full TypeScript** — end-to-end type safety from provider API to client query
