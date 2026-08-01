@@ -1,7 +1,7 @@
 ---
 date: 2026-07-18
-status: PLANNED
-priority: P1
+status: DEFERRED_APPLICATION_OWNED
+priority: DEFERRED
 semver: minor
 owner_repo: convex-wearables
 ---
@@ -10,7 +10,15 @@ owner_repo: convex-wearables
 
 ## Status
 
-Planned after provider-neutral workout enrichment.
+Deferred from the component pipeline. Open Wearables provides a legitimate
+reference implementation, but that alone is not a strong enough reason to make
+scores a framework primitive. In the current architecture, canonical score
+meaning, cross-source reconciliation, presentation, and AI-consent eligibility
+belong to the consuming application.
+
+Revisit this PRD only if a concrete requirement emerges to preserve
+provider-authored score provenance across multiple consumers, or if several
+host apps would otherwise implement the same normalized storage contract.
 
 ## Source Signal
 

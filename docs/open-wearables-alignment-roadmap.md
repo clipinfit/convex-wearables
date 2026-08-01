@@ -1,16 +1,16 @@
 ---
-date: 2026-07-18
+date: 2026-08-01
 status: ACTIVE_ROADMAP
 owner_repo: convex-wearables
 reference_repo: ../open-wearables
-reference_revision: a33cc5c0e4c3126c743a501bfeeea31880222ddc
+reference_revision: 87f589316f269662450d1d83f5b5c640fc1531e6
 ---
 
 # Open Wearables Alignment Roadmap
 
 ## Purpose
 
-This roadmap converts the July 2026 comparison with Open Wearables into an
+This roadmap converts the July/August 2026 comparison with Open Wearables into an
 ordered local delivery plan. Open Wearables is a behavioral and architectural
 reference, not a source tree to copy wholesale. Convex-native workflows,
 component isolation, provider-aware summaries, synthetic data, and tiered
@@ -20,9 +20,9 @@ No item in this roadmap authorizes publishing a package, changing a host app's
 dependency, or enabling a destructive policy. Those are separate operator
 decisions.
 
-## Current implementation tranche
+## Released reliability tranche
 
-The local worktree implements the first reliability tranche:
+Version `0.7.0` released the first reliability tranche:
 
 - accept Garmin blood-pressure `measurementTimeInSeconds`;
 - accept Garmin respiration `timeOffsetEpochToBreaths` with legacy fallbacks;
@@ -38,35 +38,42 @@ The local worktree implements the first reliability tranche:
 These changes add no table, field, index, or validator-union member. Existing
 component data needs no migration.
 
-## Delivery order
+## Active delivery order
 
 | Order | Workstream | PRD | Why now |
 |---|---|---|---|
-| 1 | Provider-neutral workout enrichment | [workout-enrichment-prd.md](./workout-enrichment-prd.md) | Largest new product/data capability; makes the existing retention system more valuable. |
-| 2 | First-class health scores | [health-scores-prd.md](./health-scores-prd.md) | Preserves score provenance and enables provider/internal score parity. |
-| 3 | Generic outgoing event delivery | [outgoing-webhooks-prd.md](./outgoing-webhooks-prd.md) | Gives host apps a stable downstream integration boundary. |
-| 4 | Live provider webhooks | [polar-suunto-webhooks-prd.md](./polar-suunto-webhooks-prd.md) | Improves freshness after the event boundary is defined. |
-| 5 | Unified sync observability | [sync-status-observability-prd.md](./sync-status-observability-prd.md) | Makes richer background behavior supportable without copying SSE. |
-| 6 | Ultrahuman | [ultrahuman-provider-prd.md](./ultrahuman-provider-prd.md) | Adds ring/recovery coverage when partner access and product demand exist. |
-| 7 | Event retention | [event-retention-policy-prd.md](./event-retention-policy-prd.md) | Extends current time-series policy to semantic events, with destructive behavior gated. |
-| 8 | Shared provider accounts | [shared-provider-accounts-prd.md](./shared-provider-accounts-prd.md) | Useful only for an explicit multi-profile/shared-device requirement. |
-| Optional | Raw provider payload capture | [raw-provider-payload-storage-prd.md](./raw-provider-payload-storage-prd.md) | Debugging aid with privacy and storage costs; not a default ingestion dependency. |
+| Done (`0.8.0` candidate) | Provider lifecycle and durable deletion | [provider-lifecycle-deletion-prd.md](./provider-lifecycle-deletion-prd.md) | Implemented with bounded Workflow deletion, ingestion fencing, explicit provider deregistration, tests, and public MDX documentation. |
+| 2 | SDK ingestion resilience | [sdk-ingestion-resilience-prd.md](./sdk-ingestion-resilience-prd.md) | Prevents one malformed SDK row from discarding an otherwise useful batch; directly supported by recent upstream hardening. |
+| 3 | Provider-neutral workout enrichment | [workout-enrichment-prd.md](./workout-enrichment-prd.md) | Largest remaining provider-neutral data capability; builds on the existing retention system. |
+| 4 | Generic outgoing event delivery, phase 1 | [outgoing-webhooks-prd.md](./outgoing-webhooks-prd.md) | Gives hosts an optional internal event boundary without committing to external webhook infrastructure. |
+| 5 | Live provider webhooks | [polar-suunto-webhooks-prd.md](./polar-suunto-webhooks-prd.md) | Improves freshness for enabled providers after the internal event contract is stable. |
+| 6 | Event retention | [event-retention-policy-prd.md](./event-retention-policy-prd.md) | Extends the existing time-series policy to semantic events, with destructive behavior explicitly gated. |
+
+## Deferred or demand-driven work
+
+| Workstream | PRD | Decision |
+|---|---|---|
+| First-class health scores | [health-scores-prd.md](./health-scores-prd.md) | Deferred. Open Wearables supports score models, but score meaning, canonicalization, and AI eligibility currently belong more naturally to the consuming application. Revisit only with a provider-fidelity or multi-app portability requirement. |
+| Unified sync observability | [sync-status-observability-prd.md](./sync-status-observability-prd.md) | Deferred for low incremental value. Workflow plus existing sync/backfill records already support CLIPIN's current UI and operational needs. |
+| Ultrahuman | [ultrahuman-provider-prd.md](./ultrahuman-provider-prd.md) | Demand-driven on partner access and a concrete consumer requirement. |
+| Shared provider accounts | [shared-provider-accounts-prd.md](./shared-provider-accounts-prd.md) | Demand-driven on an explicit multi-profile/shared-device product model. |
+| Raw provider payload capture | [raw-provider-payload-storage-prd.md](./raw-provider-payload-storage-prd.md) | Optional debugging capability with privacy and storage costs; not a default ingestion dependency. |
 
 ## Migration and upgrade matrix
 
 | Workstream | Component schema change | Existing-row rewrite | Host code/config change | `../clipin-app` path |
 |---|---|---|---|---|
-| Reliability tranche | None | None | Optional lookback config; Strava secret only if route is mounted | Update package and deploy when released; no migration command. Current Garmin-only route config needs no change. |
+| Reliability tranche (`0.7.0`) | None | None | Optional lookback config; Strava secret only if route is mounted | Already available as a package update; no migration command. Current Garmin-only route config needs no change. |
+| Provider lifecycle/deletion | Additive `dataDeletionOperations` table and indexes | None | Adopt explicit start/status APIs; optionally expose provider deregistration | Deploy schema, then replace direct whole-user deletion with workflow start/status handling. Keep local disconnect semantics. |
+| SDK ingestion resilience | None in phase 1 | None | Optional adoption of versioned v2 endpoint and partial-result handling | Package/code deploy only; Garmin webhook paths need no change. SDK clients migrate independently. |
 | Workout enrichment | Additive child tables and indexes | None required; optional historical enrichment | Adopt new read APIs only when UI needs detail | Update package, deploy schema, then add CLIPIN wrappers/UI. Do not query new APIs before deploy. |
-| Health scores | Additive `healthScores` table | Optional idempotent backfill for historical scores | New read APIs; old summary reads remain | Deploy compatibility release first; optionally run component backfill; migrate UI later. |
 | Outgoing events phase 1 | None when host callback only | None | Configure optional host function | Update package; add CLIPIN internal function only when consuming events. |
 | Outgoing subscriptions phase 2 | Additive event/subscription tables | None | Route/secrets if external delivery enabled | Deploy schema before enabling delivery. Keep disabled by default. |
 | Live provider webhooks | Optional provider settings fields | None | Mount routes and configure secrets/provider subscriptions | No CLIPIN action until those providers are enabled. Roll out one provider at a time. |
-| Sync observability | Additive bounded `syncEvents` table or optional job fields | None; historical synthesis optional | New reactive queries | Deploy schema, keep existing status UI, then switch reads after coverage verification. |
-| Ultrahuman | Widen provider validator union; adapter code | None | Credentials, UI, exhaustive TypeScript switches | Update/deploy component before adding provider config or UI. |
 | Event retention | Additive policy/cursor tables | No rewrite, but enabling policy deletes expired data | Explicit policy configuration and dry run | Deploy with retain-forever default; approve and preview CLIPIN policy separately. |
-| Shared accounts | Prefer additive lease/coordination table | None | Product identity and deletion semantics | Do not enable until CLIPIN decides whether sharing is allowed and how consent works. |
-| Raw payload capture | None for host sink; optional metadata table | No historical backfill | Configure encrypted blob sink and retention | Separate privacy/security approval; never enable silently. |
+
+Deferred work keeps its own migration analysis in its PRD but is not part of the
+active release pipeline.
 
 ## Migration rules for every future PRD
 

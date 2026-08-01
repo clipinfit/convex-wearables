@@ -1,7 +1,7 @@
 ---
 date: 2026-07-18
-status: PLANNED
-priority: P2
+status: DEFERRED_LOW_VALUE
+priority: DEFERRED
 semver: minor
 owner_repo: convex-wearables
 ---
@@ -10,7 +10,11 @@ owner_repo: convex-wearables
 
 ## Status
 
-Planned after live provider webhook support.
+Deferred for low incremental value. Convex Workflow plus the existing
+`syncJobs` and `backfillJobs` records already provide durable execution and the
+status needed by the current CLIPIN experience. A unified event stream should
+be reconsidered only when a concrete multi-source operational or user-facing
+query cannot be served cleanly from those records.
 
 ## Source Signal
 

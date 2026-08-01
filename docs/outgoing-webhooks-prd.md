@@ -1,7 +1,7 @@
 ---
 date: 2026-07-18
-status: PLANNED
-priority: P1
+status: PLANNED_PHASE_1
+priority: P2
 semver: minor
 owner_repo: convex-wearables
 ---
@@ -10,7 +10,9 @@ owner_repo: convex-wearables
 
 ## Status
 
-Planned after first-class health-score storage.
+Phase 1 is planned after lifecycle/deletion, SDK resilience, and workout
+enrichment. It is independent of first-class health-score storage. External
+subscription ownership remains a separate, demand-driven phase.
 
 ## Source Signal
 
