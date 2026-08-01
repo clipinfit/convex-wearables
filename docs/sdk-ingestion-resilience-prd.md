@@ -1,12 +1,30 @@
 ---
 date: 2026-08-01
-status: PLANNED
+status: DONE
 priority: P1
 semver: minor
+target_version: 0.9.0
 owner_repo: convex-wearables
 ---
 
 # SDK Ingestion Resilience PRD
+
+## Implementation progress
+
+Completed for version `0.9.0`:
+
+- added a bounded v2 payload parser without changing the existing v1 action;
+- defined partial and strict validation outcomes;
+- validates rows independently and normalizes supported series aliases;
+- returns stable, privacy-safe rejection codes, field paths, and aggregate
+  category counts;
+- caps rejection samples while retaining the total rejected-row count;
+- connects accepted rows to existing idempotent storage operations;
+- exposes the public v2 component action and configurable HTTP route;
+- enforces a two-megabyte HTTP request limit before component invocation;
+- returns accepted, rejected, and stored counts by category; and
+- covers partial acceptance, strict rejection, retries, malformed envelopes,
+  aliases, diagnostic redaction, request limits, and bounded diagnostics.
 
 ## Summary
 
@@ -75,12 +93,14 @@ The response is versioned and structured:
   counts: {
     received: number;
     accepted: number;
-    inserted: number;
-    updated: number;
-    skipped: number;
     rejected: number;
+    stored: number;
   };
-  categories: Record<string, CategoryCounts>;
+  categories: {
+    events: CategoryCounts;
+    dataPoints: CategoryCounts;
+    summaries: CategoryCounts;
+  };
   rejections: Array<{
     category: string;
     index: number;
@@ -117,9 +137,9 @@ atomic, but the entire request is not atomic in partial mode. The response and
 documentation must say which rows were stored.
 
 Use existing deterministic identities for data points, events, and summaries.
-`requestId` deduplicates request processing where practical but must not be the
-sole data identity. Retrying after an interrupted response must upsert the same
-records rather than duplicate them.
+`requestId` is required for correlation but is not a storage identity or a
+durable receipt. Retrying after an interrupted response upserts the same records
+rather than duplicating them through existing event, point, and summary keys.
 
 If one accepted category later fails to write, return or record a retryable
 request failure rather than mislabel those rows as validation rejections.
@@ -163,9 +183,9 @@ For existing hosts:
 5. fix recurring producer errors before broad rollout; and
 6. retain client retry behavior for transport and storage failures.
 
-`../clipin-app` currently relies primarily on Garmin webhook ingestion, so it
-does not need to adopt v2 merely to upgrade the package. Any mobile/SDK path can
-move independently when it can surface or monitor partial acceptance.
+Each mobile or SDK integration can move independently when it can surface or
+monitor partial acceptance. No consumer is required to adopt v2 merely to
+upgrade the package.
 
 ## Acceptance criteria
 
@@ -179,9 +199,10 @@ move independently when it can surface or monitor partial acceptance.
 - Property/fuzz tests cannot cause unbounded parsing, diagnostics, or writes.
 - Every rejection code has a documented client action: drop, correct, or retry.
 
-## Open questions
+## Resolved design decisions
 
-- Should `requestId` be mandatory for v2 or generated when absent?
-- Should validation schemas be exported for SDK-side preflight checks?
-- Which categories need category-level atomicity rather than row-level partial
-  acceptance?
+- `requestId` is mandatory and supplied by the client.
+- Server validation schemas remain internal for this release; public TypeScript
+  request and result types define the transport contract.
+- Partial mode validates and accepts rows independently. Strict mode provides
+  request-level validation atomicity for consumers that require it.

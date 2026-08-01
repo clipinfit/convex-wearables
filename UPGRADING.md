@@ -68,8 +68,7 @@ Migration assessment:
 Strava hosts have one required security configuration change if they mount the
 exported `stravaWebhookVerify` handler: configure
 `STRAVA_WEBHOOK_VERIFY_TOKEN` in the Convex deployment. The route now fails
-closed when the variable is absent. `../clipin-app` currently mounts only the
-Garmin route, so this does not require an app change there.
+closed when the variable is absent.
 
 Recommended release classification: minor while the package is pre-1.0 because
 it adds public sync configuration. There is no data migration.
@@ -111,6 +110,36 @@ storage-policy configuration are preserved.
 
 Recommended release classification: minor. All APIs and schema changes are
 additive, and existing connection/disconnect behavior remains compatible.
+
+## Version 0.9.0: resilient SDK ingestion
+
+Version `0.9.0` adds an opt-in v2 ingestion action and HTTP route for normalized
+Apple Health, Health Connect, and Samsung Health payloads. V2 validates rows
+independently, stores valid rows in partial mode, and returns bounded rejection
+details without echoing health values.
+
+Migration assessment:
+
+- No component schema changes or stored-row rewrites are required.
+- The existing `ingestNormalizedPayload` action and `/sdk/sync` route retain
+  their strict, all-or-nothing behavior.
+- When SDK routes are enabled, the v2 route defaults to `/sdk/sync/v2`. Set
+  `syncV2Path: false` to disable it or provide a custom path.
+- Existing clients can upgrade without changing requests. Adopt v2 per SDK
+  client when it can handle `accepted`, `partially_accepted`, and `rejected`
+  reports.
+- V2 requires a stable `requestId`; retries are safe because accepted events,
+  points, and summaries use the component's existing idempotent upsert keys.
+- `partial` is the default. Use `strict` when no rows should persist if any row
+  is invalid.
+
+Recommended rollout:
+
+1. Update the package and deploy component code; no migration command is needed.
+2. Keep v1 clients unchanged.
+3. Update one client to post the v2 envelope and interpret rejection codes.
+4. Monitor recurring producer validation errors.
+5. Expand v2 adoption independently across clients.
 
 ## Provider-aware daily summaries
 

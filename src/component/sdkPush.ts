@@ -1,28 +1,44 @@
 import { v } from "convex/values";
-import { SERIES_TYPES } from "../client/types";
+import type { SdkPushPayload } from "../client/types";
 import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import type { ActionCtx } from "./_generated/server";
 import { action } from "./_generated/server";
+import { normalizeSdkSeriesType, parseSdkPayloadV2 } from "./sdkPushValidation";
 
 const sdkProviderName = v.union(v.literal("apple"), v.literal("google"), v.literal("samsung"));
+const sdkIngestionCategoryCountsValidator = v.object({
+  received: v.number(),
+  accepted: v.number(),
+  rejected: v.number(),
+  stored: v.number(),
+});
+const sdkIngestionRejectionValidator = v.object({
+  category: v.union(
+    v.literal("payload"),
+    v.literal("events"),
+    v.literal("dataPoints"),
+    v.literal("summaries"),
+    v.literal("dailySummaries"),
+  ),
+  index: v.number(),
+  code: v.union(
+    v.literal("invalid_envelope"),
+    v.literal("invalid_type"),
+    v.literal("invalid_value"),
+    v.literal("limit_exceeded"),
+    v.literal("missing_field"),
+    v.literal("unknown_field"),
+    v.literal("unsupported_series_type"),
+  ),
+  path: v.optional(v.string()),
+  message: v.string(),
+});
 const EVENT_BATCH_SIZE = 50;
 const DATA_POINT_BATCH_SIZE = 200;
 const MAX_EVENTS_PER_REQUEST = 500;
 const MAX_DATA_POINTS_PER_REQUEST = 10000;
 const MAX_SUMMARIES_PER_REQUEST = 1000;
-const SERIES_TYPE_ALIASES = {
-  hrv_rmssd: "heart_rate_variability_rmssd",
-  POWER: "power",
-  power: "power",
-  SPEED: "speed",
-  speed: "speed",
-  CYCLING_PEDALING_CADENCE: "cadence",
-  cycling_pedaling_cadence: "cadence",
-  TOTAL_CALORIES_BURNED: "total_calories",
-  total_calories_burned: "total_calories",
-} as const;
-const validSeriesTypes = new Set(Object.keys(SERIES_TYPES));
 
 const deviceMetadataValidator = v.object({
   model: v.optional(v.string()),
@@ -260,192 +276,273 @@ export const ingestNormalizedPayload = action({
     summariesStored: v.number(),
   }),
   handler: async (ctx, args) => {
-    const connectionId = await ctx.runMutation(internal.connections.ensurePushConnection, {
+    return await ingestValidatedPayload(ctx, args);
+  },
+});
+
+export const ingestNormalizedPayloadV2 = action({
+  args: {
+    userId: v.string(),
+    provider: sdkProviderName,
+    requestId: v.string(),
+    mode: v.optional(v.union(v.literal("partial"), v.literal("strict"))),
+    payload: v.any(),
+  },
+  returns: v.object({
+    requestId: v.string(),
+    status: v.union(v.literal("accepted"), v.literal("partially_accepted"), v.literal("rejected")),
+    mode: v.union(v.literal("partial"), v.literal("strict")),
+    connectionId: v.optional(v.id("connections")),
+    counts: v.object({
+      received: v.number(),
+      accepted: v.number(),
+      rejected: v.number(),
+      stored: v.number(),
+    }),
+    categories: v.object({
+      events: sdkIngestionCategoryCountsValidator,
+      dataPoints: sdkIngestionCategoryCountsValidator,
+      summaries: sdkIngestionCategoryCountsValidator,
+    }),
+    rejections: v.array(sdkIngestionRejectionValidator),
+    rejectionCountTruncated: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    if (args.requestId.trim().length === 0) {
+      throw new Error("SDK v2 requestId must not be empty");
+    }
+
+    const parsed = parseSdkPayloadV2(args.payload, args.mode ?? "partial");
+    const emptyResult = {
+      requestId: args.requestId,
+      status: parsed.status,
+      mode: parsed.mode,
+      counts: { ...parsed.counts, stored: 0 },
+      categories: {
+        events: { ...parsed.categories.events, stored: 0 },
+        dataPoints: { ...parsed.categories.dataPoints, stored: 0 },
+        summaries: { ...parsed.categories.summaries, stored: 0 },
+      },
+      rejections: parsed.rejections,
+      rejectionCountTruncated: parsed.rejectionCountTruncated,
+    };
+
+    if (!parsed.canPersist || parsed.counts.accepted === 0) {
+      return emptyResult;
+    }
+
+    const stored = await ingestValidatedPayload(ctx, {
       userId: args.userId,
       provider: args.provider,
-      providerUserId: args.providerUserId,
-      providerUsername: args.providerUsername,
+      ...parsed.payload,
     });
-
-    const sourceCache: DataSourceCache = new Map();
-    const defaultMetadata = resolveSourceMetadata(
-      sourceMetadataFromDevice(args.device),
-      args.sourceMetadata ?? {},
-    );
-    const events = args.events ?? [];
-    const dataPoints = args.dataPoints ?? [];
-    const summaries = [...(args.summaries ?? []), ...(args.dailySummaries ?? [])];
-
-    assertPayloadWithinLimits({ events, dataPoints, summaries });
-
-    if (events.length > 0) {
-      const docs = [];
-      for (const event of events) {
-        const metadata = resolveSourceMetadata(defaultMetadata, {
-          deviceModel: event.deviceModel,
-          softwareVersion: event.softwareVersion,
-          source: event.source,
-          deviceType: event.deviceType,
-          originalSourceName: event.originalSourceName,
-          appId: event.appId,
-          app_id: event.app_id,
-          bundleIdentifier: event.bundleIdentifier,
-          bundle_identifier: event.bundle_identifier,
-        });
-        const dataSourceId = await ensureDataSource(
-          ctx,
-          {
-            userId: args.userId,
-            provider: args.provider,
-            connectionId,
-          },
-          sourceCache,
-          metadata,
-        );
-
-        docs.push({
-          dataSourceId,
-          userId: args.userId,
-          category: event.category,
-          type: event.category === "workout" ? normalizeWorkoutType(event.type) : event.type,
-          sourceName: event.sourceName ?? defaultSourceName(args.provider),
-          durationSeconds: event.durationSeconds,
-          startDatetime: event.startDatetime,
-          endDatetime: event.endDatetime,
-          externalId: event.externalId,
-          heartRateMin: event.heartRateMin,
-          heartRateMax: event.heartRateMax,
-          heartRateAvg: event.heartRateAvg,
-          energyBurned: event.energyBurned,
-          distance: event.distance,
-          stepsCount: event.stepsCount,
-          maxSpeed: event.maxSpeed,
-          maxWatts: event.maxWatts,
-          movingTimeSeconds: event.movingTimeSeconds,
-          totalElevationGain: event.totalElevationGain,
-          averageSpeed: event.averageSpeed,
-          averageWatts: event.averageWatts,
-          elevHigh: event.elevHigh,
-          elevLow: event.elevLow,
-          sleepTotalDurationMinutes: event.sleepTotalDurationMinutes,
-          sleepTimeInBedMinutes: event.sleepTimeInBedMinutes,
-          sleepEfficiencyScore: event.sleepEfficiencyScore,
-          sleepDeepMinutes: event.sleepDeepMinutes,
-          sleepRemMinutes: event.sleepRemMinutes,
-          sleepLightMinutes: event.sleepLightMinutes,
-          sleepAwakeMinutes: event.sleepAwakeMinutes,
-          isNap: event.isNap,
-          sleepStages: event.sleepStages,
-        });
-      }
-
-      for (const batch of chunk(docs, EVENT_BATCH_SIZE)) {
-        await ctx.runMutation(internal.events.storeEventBatch, {
-          events: batch,
-        });
-      }
-    }
-
-    if (dataPoints.length > 0) {
-      const grouped = new Map<
-        string,
-        {
-          dataSourceId: Id<"dataSources">;
-          seriesType: string;
-          points: Array<{
-            recordedAt: number;
-            value: number;
-            externalId?: string;
-          }>;
-        }
-      >();
-
-      for (const point of dataPoints) {
-        const seriesType = normalizeSeriesType(point.seriesType);
-        const metadata = resolveSourceMetadata(defaultMetadata, {
-          deviceModel: point.deviceModel,
-          softwareVersion: point.softwareVersion,
-          source: point.source,
-          deviceType: point.deviceType,
-          originalSourceName: point.originalSourceName,
-          appId: point.appId,
-          app_id: point.app_id,
-          bundleIdentifier: point.bundleIdentifier,
-          bundle_identifier: point.bundle_identifier,
-        });
-        const dataSourceId = await ensureDataSource(
-          ctx,
-          {
-            userId: args.userId,
-            provider: args.provider,
-            connectionId,
-          },
-          sourceCache,
-          metadata,
-        );
-
-        const key = `${dataSourceId}::${seriesType}`;
-        const group = grouped.get(key) ?? {
-          dataSourceId,
-          seriesType,
-          points: [],
-        };
-        group.points.push({
-          recordedAt: point.recordedAt,
-          value: point.value,
-          externalId: point.externalId,
-        });
-        grouped.set(key, group);
-      }
-
-      for (const group of grouped.values()) {
-        for (const batch of chunk(group.points, DATA_POINT_BATCH_SIZE)) {
-          await ctx.runMutation(internal.dataPoints.storeBatch, {
-            dataSourceId: group.dataSourceId,
-            seriesType: group.seriesType,
-            points: batch,
-          });
-        }
-      }
-    }
-
-    for (const summary of summaries) {
-      const {
-        appId,
-        app_id,
-        bundleIdentifier,
-        bundle_identifier,
-        originalSourceName,
-        source,
-        ...summaryMetrics
-      } = summary;
-      await ctx.runMutation(internal.summaries.upsert, {
-        userId: args.userId,
-        provider: args.provider,
-        ...summaryMetrics,
-        source: source ?? defaultMetadata.source,
-        originalSourceName:
-          originalSourceName ??
-          appId ??
-          app_id ??
-          bundleIdentifier ??
-          bundle_identifier ??
-          defaultMetadata.originalSourceName,
-      });
-    }
-
-    await ctx.runMutation(internal.connections.markSynced, {
-      connectionId,
-    });
+    const storedTotal = stored.eventsStored + stored.dataPointsStored + stored.summariesStored;
 
     return {
-      connectionId,
-      eventsStored: events.length,
-      dataPointsStored: dataPoints.length,
-      summariesStored: summaries.length,
+      ...emptyResult,
+      connectionId: stored.connectionId,
+      counts: { ...emptyResult.counts, stored: storedTotal },
+      categories: {
+        events: { ...emptyResult.categories.events, stored: stored.eventsStored },
+        dataPoints: {
+          ...emptyResult.categories.dataPoints,
+          stored: stored.dataPointsStored,
+        },
+        summaries: {
+          ...emptyResult.categories.summaries,
+          stored: stored.summariesStored,
+        },
+      },
     };
   },
 });
+
+async function ingestValidatedPayload(ctx: ActionCtx, args: SdkPushPayload) {
+  const connectionId = await ctx.runMutation(internal.connections.ensurePushConnection, {
+    userId: args.userId,
+    provider: args.provider,
+    providerUserId: args.providerUserId,
+    providerUsername: args.providerUsername,
+  });
+
+  const sourceCache: DataSourceCache = new Map();
+  const defaultMetadata = resolveSourceMetadata(
+    sourceMetadataFromDevice(args.device),
+    args.sourceMetadata ?? {},
+  );
+  const events = args.events ?? [];
+  const dataPoints = args.dataPoints ?? [];
+  const summaries = [...(args.summaries ?? []), ...(args.dailySummaries ?? [])];
+
+  assertPayloadWithinLimits({ events, dataPoints, summaries });
+
+  if (events.length > 0) {
+    const docs = [];
+    for (const event of events) {
+      const metadata = resolveSourceMetadata(defaultMetadata, {
+        deviceModel: event.deviceModel,
+        softwareVersion: event.softwareVersion,
+        source: event.source,
+        deviceType: event.deviceType,
+        originalSourceName: event.originalSourceName,
+        appId: event.appId,
+        app_id: event.app_id,
+        bundleIdentifier: event.bundleIdentifier,
+        bundle_identifier: event.bundle_identifier,
+      });
+      const dataSourceId = await ensureDataSource(
+        ctx,
+        {
+          userId: args.userId,
+          provider: args.provider,
+          connectionId,
+        },
+        sourceCache,
+        metadata,
+      );
+
+      docs.push({
+        dataSourceId,
+        userId: args.userId,
+        category: event.category,
+        type: event.category === "workout" ? normalizeWorkoutType(event.type) : event.type,
+        sourceName: event.sourceName ?? defaultSourceName(args.provider),
+        durationSeconds: event.durationSeconds,
+        startDatetime: event.startDatetime,
+        endDatetime: event.endDatetime,
+        externalId: event.externalId,
+        heartRateMin: event.heartRateMin,
+        heartRateMax: event.heartRateMax,
+        heartRateAvg: event.heartRateAvg,
+        energyBurned: event.energyBurned,
+        distance: event.distance,
+        stepsCount: event.stepsCount,
+        maxSpeed: event.maxSpeed,
+        maxWatts: event.maxWatts,
+        movingTimeSeconds: event.movingTimeSeconds,
+        totalElevationGain: event.totalElevationGain,
+        averageSpeed: event.averageSpeed,
+        averageWatts: event.averageWatts,
+        elevHigh: event.elevHigh,
+        elevLow: event.elevLow,
+        sleepTotalDurationMinutes: event.sleepTotalDurationMinutes,
+        sleepTimeInBedMinutes: event.sleepTimeInBedMinutes,
+        sleepEfficiencyScore: event.sleepEfficiencyScore,
+        sleepDeepMinutes: event.sleepDeepMinutes,
+        sleepRemMinutes: event.sleepRemMinutes,
+        sleepLightMinutes: event.sleepLightMinutes,
+        sleepAwakeMinutes: event.sleepAwakeMinutes,
+        isNap: event.isNap,
+        sleepStages: event.sleepStages,
+      });
+    }
+
+    for (const batch of chunk(docs, EVENT_BATCH_SIZE)) {
+      await ctx.runMutation(internal.events.storeEventBatch, {
+        events: batch,
+      });
+    }
+  }
+
+  if (dataPoints.length > 0) {
+    const grouped = new Map<
+      string,
+      {
+        dataSourceId: Id<"dataSources">;
+        seriesType: string;
+        points: Array<{
+          recordedAt: number;
+          value: number;
+          externalId?: string;
+        }>;
+      }
+    >();
+
+    for (const point of dataPoints) {
+      const seriesType = normalizeSeriesType(point.seriesType);
+      const metadata = resolveSourceMetadata(defaultMetadata, {
+        deviceModel: point.deviceModel,
+        softwareVersion: point.softwareVersion,
+        source: point.source,
+        deviceType: point.deviceType,
+        originalSourceName: point.originalSourceName,
+        appId: point.appId,
+        app_id: point.app_id,
+        bundleIdentifier: point.bundleIdentifier,
+        bundle_identifier: point.bundle_identifier,
+      });
+      const dataSourceId = await ensureDataSource(
+        ctx,
+        {
+          userId: args.userId,
+          provider: args.provider,
+          connectionId,
+        },
+        sourceCache,
+        metadata,
+      );
+
+      const key = `${dataSourceId}::${seriesType}`;
+      const group = grouped.get(key) ?? {
+        dataSourceId,
+        seriesType,
+        points: [],
+      };
+      group.points.push({
+        recordedAt: point.recordedAt,
+        value: point.value,
+        externalId: point.externalId,
+      });
+      grouped.set(key, group);
+    }
+
+    for (const group of grouped.values()) {
+      for (const batch of chunk(group.points, DATA_POINT_BATCH_SIZE)) {
+        await ctx.runMutation(internal.dataPoints.storeBatch, {
+          dataSourceId: group.dataSourceId,
+          seriesType: group.seriesType,
+          points: batch,
+        });
+      }
+    }
+  }
+
+  for (const summary of summaries) {
+    const {
+      appId,
+      app_id,
+      bundleIdentifier,
+      bundle_identifier,
+      originalSourceName,
+      source,
+      ...summaryMetrics
+    } = summary;
+    await ctx.runMutation(internal.summaries.upsert, {
+      userId: args.userId,
+      provider: args.provider,
+      ...summaryMetrics,
+      source: source ?? defaultMetadata.source,
+      originalSourceName:
+        originalSourceName ??
+        appId ??
+        app_id ??
+        bundleIdentifier ??
+        bundle_identifier ??
+        defaultMetadata.originalSourceName,
+    });
+  }
+
+  await ctx.runMutation(internal.connections.markSynced, {
+    connectionId,
+  });
+
+  return {
+    connectionId,
+    eventsStored: events.length,
+    dataPointsStored: dataPoints.length,
+    summariesStored: summaries.length,
+  };
+}
 
 function sourceMetadataFromDevice(
   device:
@@ -482,9 +579,8 @@ function sourceMetadataFromDevice(
 }
 
 function normalizeSeriesType(seriesType: string): string {
-  const normalized =
-    SERIES_TYPE_ALIASES[seriesType as keyof typeof SERIES_TYPE_ALIASES] ?? seriesType;
-  if (!validSeriesTypes.has(normalized)) {
+  const normalized = normalizeSdkSeriesType(seriesType);
+  if (normalized === null) {
     throw new Error(`Unsupported series type "${seriesType}"`);
   }
   return normalized;

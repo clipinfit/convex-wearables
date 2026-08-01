@@ -45,9 +45,16 @@ import type {
   ProviderDeregistrationStatus,
   ProviderName,
   RegisterRoutesConfig,
+  SdkIngestionCategoryCounts,
+  SdkIngestionMode,
+  SdkIngestionRejection,
+  SdkIngestionRejectionCode,
+  SdkIngestionV2Request,
+  SdkIngestionV2Result,
   SdkPushDataPoint,
   SdkPushEvent,
   SdkPushPayload,
+  SdkPushPayloadV2Body,
   SdkPushSummary,
   SdkRoutesConfig,
   SdkSyncPayload,
@@ -115,9 +122,16 @@ export type {
   ProviderDeregistrationStatus,
   ProviderName,
   RegisterRoutesConfig,
+  SdkIngestionCategoryCounts,
+  SdkIngestionMode,
+  SdkIngestionRejection,
+  SdkIngestionRejectionCode,
+  SdkIngestionV2Request,
+  SdkIngestionV2Result,
   SdkPushDataPoint,
   SdkPushEvent,
   SdkPushPayload,
+  SdkPushPayloadV2Body,
   SdkPushSummary,
   SdkRoutesConfig,
   SdkSyncPayload,
@@ -154,6 +168,7 @@ type MutationRunner =
 type ActionRunner = Pick<GenericActionCtx<GenericDataModel>, "runAction">;
 
 const GARMIN_PUSH_COMPONENT_FUNCTION = "wearables.garminWebhooks.processPushPayload";
+const MAX_SDK_V2_REQUEST_BYTES = 2_000_000;
 
 // ---------------------------------------------------------------------------
 // WearablesClient — the main API surface for host apps
@@ -646,6 +661,16 @@ export class WearablesClient {
     return getSdkSyncUrl(baseUrl, config);
   }
 
+  /** Resolve the configured resilient SDK v2 sync path. */
+  getSdkSyncV2Path(config?: RegisterRoutesConfig): string | null {
+    return getSdkSyncV2Path(config);
+  }
+
+  /** Resolve the full resilient SDK v2 sync URL for a Convex deployment. */
+  getSdkSyncV2Url(baseUrl: string, config?: RegisterRoutesConfig): string | null {
+    return getSdkSyncV2Url(baseUrl, config);
+  }
+
   // -----------------------------------------------------------------------
   // Lifecycle
   // -----------------------------------------------------------------------
@@ -949,6 +974,7 @@ export function registerRoutes(
 
   if (registerSdkRoutes) {
     const syncPath = sdkConfig?.syncPath ?? "/sdk/sync";
+    const syncV2Path = sdkConfig?.syncV2Path ?? "/sdk/sync/v2";
     const expectedToken = sdkConfig?.authToken ?? process.env.WEARABLES_SDK_AUTH_TOKEN;
 
     if (syncPath !== false) {
@@ -992,6 +1018,71 @@ export function registerRoutes(
         }),
       });
     }
+
+    if (syncV2Path !== false) {
+      http.route({
+        path: syncV2Path,
+        method: "POST",
+        handler: httpActionGeneric(async (ctx, request) => {
+          if (!isSdkRequestAuthorized(request, expectedToken)) {
+            return new Response("Unauthorized", { status: 401 });
+          }
+
+          const declaredLength = Number(request.headers.get("content-length"));
+          if (Number.isFinite(declaredLength) && declaredLength > MAX_SDK_V2_REQUEST_BYTES) {
+            return sdkJsonResponse(
+              { code: "payload_too_large", message: "SDK v2 payload exceeds the byte limit." },
+              413,
+            );
+          }
+
+          let body: string;
+          try {
+            body = await request.text();
+          } catch {
+            return sdkJsonResponse({ code: "invalid_json", message: "Invalid JSON body." }, 400);
+          }
+          if (new TextEncoder().encode(body).byteLength > MAX_SDK_V2_REQUEST_BYTES) {
+            return sdkJsonResponse(
+              { code: "payload_too_large", message: "SDK v2 payload exceeds the byte limit." },
+              413,
+            );
+          }
+
+          let requestPayload: unknown;
+          try {
+            requestPayload = JSON.parse(body);
+          } catch {
+            return sdkJsonResponse({ code: "invalid_json", message: "Invalid JSON body." }, 400);
+          }
+
+          if (!isSdkV2Request(requestPayload)) {
+            return sdkJsonResponse(
+              { code: "invalid_envelope", message: "Invalid SDK v2 request envelope." },
+              400,
+            );
+          }
+
+          try {
+            const result = (await ctx.runAction(
+              component.sdkPush.ingestNormalizedPayloadV2,
+              requestPayload,
+            )) as SdkIngestionV2Result;
+            return sdkJsonResponse(result, result.status === "rejected" ? 422 : 200);
+          } catch (error) {
+            console.error("SDK v2 sync processing failed", {
+              requestId: requestPayload.requestId,
+              provider: requestPayload.provider,
+              error: serializeError(error),
+            });
+            return sdkJsonResponse(
+              { code: "ingestion_failed", message: "SDK v2 ingestion failed." },
+              500,
+            );
+          }
+        }),
+      });
+    }
   }
 }
 
@@ -1020,6 +1111,21 @@ export function getSdkSyncUrl(baseUrl: string, config?: RegisterRoutesConfig): s
     return null;
   }
   return new URL(path, baseUrl).toString();
+}
+
+/** Resolve the configured resilient SDK v2 path, or null if disabled. */
+export function getSdkSyncV2Path(config?: RegisterRoutesConfig): string | null {
+  const sdkConfig = config?.sdk;
+  if (sdkConfig === undefined || sdkConfig === false || sdkConfig.syncV2Path === false) {
+    return null;
+  }
+  return sdkConfig.syncV2Path ?? "/sdk/sync/v2";
+}
+
+/** Resolve the full resilient SDK v2 URL, or null if disabled. */
+export function getSdkSyncV2Url(baseUrl: string, config?: RegisterRoutesConfig): string | null {
+  const path = getSdkSyncV2Path(config);
+  return path ? new URL(path, baseUrl).toString() : null;
 }
 
 function summarizeGarminPayload(payload: unknown) {
@@ -1090,6 +1196,33 @@ function extractBearerToken(authHeader: string | null): string | null {
   if (!scheme || !token) return null;
   if (scheme.toLowerCase() !== "bearer") return null;
   return token;
+}
+
+function isSdkRequestAuthorized(request: Request, expectedToken: string | undefined): boolean {
+  if (!expectedToken) return true;
+  const providedToken =
+    extractBearerToken(request.headers.get("authorization")) ??
+    request.headers.get("x-wearables-sdk-token");
+  return providedToken === expectedToken;
+}
+
+function isSdkV2Request(value: unknown): value is SdkIngestionV2Request {
+  if (!isRecord(value) || !isRecord(value.payload)) return false;
+  const allowedFields = new Set(["userId", "provider", "requestId", "mode", "payload"]);
+  if (Object.keys(value).some((field) => !allowedFields.has(field))) return false;
+  if (typeof value.userId !== "string" || value.userId.length === 0) return false;
+  if (typeof value.requestId !== "string" || value.requestId.length === 0) return false;
+  if (value.provider !== "apple" && value.provider !== "google" && value.provider !== "samsung") {
+    return false;
+  }
+  return value.mode === undefined || value.mode === "partial" || value.mode === "strict";
+}
+
+function sdkJsonResponse(value: unknown, status: number): Response {
+  return new Response(JSON.stringify(value), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
 function getArrayLength(value: unknown): number {

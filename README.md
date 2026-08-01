@@ -925,6 +925,37 @@ const sdkSyncUrl = getSdkSyncUrl(process.env.CONVEX_SITE_URL!, routeConfig);
 export default http;
 ```
 
+The same configuration also registers `/sdk/sync/v2`, a resilient opt-in route
+that accepts a versioned envelope:
+
+```ts
+const result = await fetch(`${process.env.CONVEX_SITE_URL}/sdk/sync/v2`, {
+  method: "POST",
+  headers: {
+    "content-type": "application/json",
+    authorization: `Bearer ${sdkToken}`,
+  },
+  body: JSON.stringify({
+    userId: "user_123",
+    provider: "google",
+    requestId: "health-connect-sync-2026-08-01T08:00:00Z",
+    mode: "partial",
+    payload: {
+      dataPoints: normalizedPoints,
+      events: normalizedEvents,
+      summaries: normalizedSummaries,
+    },
+  }),
+});
+
+const report = await result.json();
+```
+
+V2 stores valid rows when isolated rows are malformed and reports bounded,
+privacy-safe rejection codes. Set `mode: "strict"` to preserve request-level
+all-or-nothing validation. The original `/sdk/sync` route is unchanged. Set
+`syncV2Path: false` to disable v2 or provide a custom path.
+
 Then POST a pre-normalized payload from your mobile app:
 
 ```json
@@ -1069,7 +1100,9 @@ console.log(SERIES_TYPES.heart_rate);
 
 ## Testing
 
-The package currently has 110 passing tests across the component internals, provider adapters, webhook ingestion, SDK push ingestion, workflow orchestration, and client helpers.
+The package test suite covers component internals, provider adapters, webhook
+ingestion, strict and resilient SDK push ingestion, workflow orchestration, and
+client helpers.
 
 ```bash
 # Run all tests

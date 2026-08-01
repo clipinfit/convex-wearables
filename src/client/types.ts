@@ -211,6 +211,11 @@ export interface SdkRoutesConfig {
   /** Route that receives normalized SDK/mobile health pushes. */
   syncPath?: string | false;
   /**
+   * Versioned route that accepts partially valid SDK batches and returns a
+   * structured ingestion report. Defaults to `/sdk/sync/v2`.
+   */
+  syncV2Path?: string | false;
+  /**
    * Optional shared bearer token expected on the SDK sync route.
    * Defaults to `process.env.WEARABLES_SDK_AUTH_TOKEN` when omitted.
    */
@@ -362,6 +367,62 @@ export interface SdkPushPayload {
 }
 
 export type SdkSyncPayload = SdkPushPayload;
+
+export type SdkIngestionMode = "partial" | "strict";
+
+export type SdkIngestionRejectionCode =
+  | "invalid_envelope"
+  | "invalid_type"
+  | "invalid_value"
+  | "limit_exceeded"
+  | "missing_field"
+  | "unknown_field"
+  | "unsupported_series_type";
+
+export interface SdkIngestionRejection {
+  category: "payload" | "events" | "dataPoints" | "summaries" | "dailySummaries";
+  index: number;
+  code: SdkIngestionRejectionCode;
+  path?: string;
+  message: string;
+}
+
+export interface SdkIngestionCategoryCounts {
+  received: number;
+  accepted: number;
+  rejected: number;
+  stored: number;
+}
+
+export type SdkPushPayloadV2Body = Omit<SdkPushPayload, "userId" | "provider">;
+
+export interface SdkIngestionV2Request {
+  userId: string;
+  provider: SdkProviderName;
+  requestId: string;
+  mode?: SdkIngestionMode;
+  payload: SdkPushPayloadV2Body;
+}
+
+export interface SdkIngestionV2Result {
+  requestId: string;
+  status: "accepted" | "partially_accepted" | "rejected";
+  mode: SdkIngestionMode;
+  connectionId?: string;
+  counts: {
+    received: number;
+    accepted: number;
+    rejected: number;
+    stored: number;
+  };
+  categories: {
+    events: SdkIngestionCategoryCounts;
+    dataPoints: SdkIngestionCategoryCounts;
+    summaries: SdkIngestionCategoryCounts;
+  };
+  rejections: SdkIngestionRejection[];
+  rejectionCountTruncated: number;
+}
 
 // ---------------------------------------------------------------------------
 // Synthetic provider

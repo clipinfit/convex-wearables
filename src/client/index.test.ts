@@ -5,6 +5,8 @@ import {
   getProviderCapabilityInfo,
   getSdkSyncPath,
   getSdkSyncUrl,
+  getSdkSyncV2Path,
+  getSdkSyncV2Url,
   oauthCallback,
   registerRoutes,
   stravaWebhookEvent,
@@ -17,6 +19,8 @@ describe("sdk route helpers", () => {
   it("returns null when the sdk sync route is not configured", () => {
     expect(getSdkSyncPath()).toBeNull();
     expect(getSdkSyncUrl("https://example.convex.site")).toBeNull();
+    expect(getSdkSyncV2Path()).toBeNull();
+    expect(getSdkSyncV2Url("https://example.convex.site")).toBeNull();
   });
 
   it("returns the default sdk sync path and url when enabled", () => {
@@ -31,6 +35,18 @@ describe("sdk route helpers", () => {
     expect(client.getSdkSyncUrl("https://example.convex.site", config)).toBe(
       "https://example.convex.site/sdk/sync",
     );
+    expect(getSdkSyncV2Path(config)).toBe("/sdk/sync/v2");
+    expect(getSdkSyncV2Url("https://example.convex.site", config)).toBe(
+      "https://example.convex.site/sdk/sync/v2",
+    );
+    expect(client.getSdkSyncV2Path(config)).toBe("/sdk/sync/v2");
+  });
+
+  it("respects a custom or disabled resilient sdk v2 path", () => {
+    expect(getSdkSyncV2Path({ sdk: { syncV2Path: "/mobile/sdk-sync/v2" } })).toBe(
+      "/mobile/sdk-sync/v2",
+    );
+    expect(getSdkSyncV2Path({ sdk: { syncV2Path: false } })).toBeNull();
   });
 
   it("respects a custom sdk sync path", () => {
@@ -393,6 +409,103 @@ describe("package exports", () => {
 });
 
 describe("registerRoutes", () => {
+  it("registers the v2 SDK route and forwards a validated envelope", async () => {
+    const routes: Array<{
+      handler: { _handler: (ctx: unknown, request: Request) => Promise<Response> };
+      method: string;
+      path: string;
+    }> = [];
+    const http = {
+      route: (route: (typeof routes)[number]) => routes.push(route),
+    };
+    const component = {
+      sdkPush: {
+        ingestNormalizedPayload: "sdk-v1",
+        ingestNormalizedPayloadV2: "sdk-v2",
+      },
+    } as unknown as WearablesComponent;
+
+    registerRoutes(http as never, component, {
+      garmin: false,
+      sdk: { authToken: "sdk-secret" },
+    });
+
+    const route = routes.find((item) => item.path === "/sdk/sync/v2");
+    expect(route).toBeDefined();
+    const actionCalls: Array<{ ref: unknown; args: unknown }> = [];
+    const requestBody = {
+      userId: "user-1",
+      provider: "google",
+      requestId: "request-1",
+      payload: { dataPoints: [] },
+    };
+    const response = await route!.handler._handler(
+      {
+        runAction: async (ref: unknown, args: unknown) => {
+          actionCalls.push({ ref, args });
+          return {
+            requestId: "request-1",
+            status: "accepted",
+            mode: "partial",
+            counts: { received: 0, accepted: 0, rejected: 0, stored: 0 },
+            categories: {
+              events: { received: 0, accepted: 0, rejected: 0, stored: 0 },
+              dataPoints: { received: 0, accepted: 0, rejected: 0, stored: 0 },
+              summaries: { received: 0, accepted: 0, rejected: 0, stored: 0 },
+            },
+            rejections: [],
+            rejectionCountTruncated: 0,
+          };
+        },
+      },
+      new Request("https://example.com/sdk/sync/v2", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer sdk-secret",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(requestBody),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(actionCalls).toEqual([{ ref: "sdk-v2", args: requestBody }]);
+  });
+
+  it("rejects oversized SDK v2 requests before invoking the component", async () => {
+    const routes: Array<{
+      handler: { _handler: (ctx: unknown, request: Request) => Promise<Response> };
+      method: string;
+      path: string;
+    }> = [];
+    const http = { route: (route: (typeof routes)[number]) => routes.push(route) };
+    const component = {
+      sdkPush: {
+        ingestNormalizedPayload: "sdk-v1",
+        ingestNormalizedPayloadV2: "sdk-v2",
+      },
+    } as unknown as WearablesComponent;
+    registerRoutes(http as never, component, { garmin: false, sdk: {} });
+
+    const route = routes.find((item) => item.path === "/sdk/sync/v2")!;
+    let invoked = false;
+    const response = await route.handler._handler(
+      {
+        runAction: async () => {
+          invoked = true;
+        },
+      },
+      new Request("https://example.com/sdk/sync/v2", {
+        method: "POST",
+        headers: { "content-length": "2000001" },
+        body: "{}",
+      }),
+    );
+
+    expect(response.status).toBe(413);
+    expect(invoked).toBe(false);
+  });
+
   it("schedules Garmin push ingestion and acknowledges the webhook immediately", async () => {
     const routes: Array<{
       handler: { _handler: (ctx: unknown, request: Request) => Promise<Response> };

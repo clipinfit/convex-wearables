@@ -5,6 +5,112 @@ import schema from "./schema";
 import { modules } from "./test.setup";
 
 describe("sdkPush", () => {
+  it("stores valid v2 rows and reports malformed rows without rejecting the batch", async () => {
+    const t = convexTest(schema, modules);
+
+    const result = await t.action(api.sdkPush.ingestNormalizedPayloadV2, {
+      userId: "v2-partial-user",
+      provider: "google",
+      requestId: "request-partial-1",
+      payload: {
+        dataPoints: [
+          {
+            seriesType: "heart_rate",
+            recordedAt: Date.parse("2026-08-01T08:00:00Z"),
+            value: 62,
+            externalId: "v2-valid-point",
+          },
+          {
+            seriesType: "heart_rate",
+            recordedAt: "invalid",
+            value: 64,
+          },
+        ],
+      },
+    });
+
+    expect(result).toMatchObject({
+      requestId: "request-partial-1",
+      status: "partially_accepted",
+      mode: "partial",
+      counts: { received: 2, accepted: 1, rejected: 1, stored: 1 },
+      categories: {
+        dataPoints: { received: 2, accepted: 1, rejected: 1, stored: 1 },
+      },
+    });
+    expect(result.connectionId).toBeTypeOf("string");
+
+    const points = await t.run(async (ctx) => ctx.db.query("dataPoints").collect());
+    expect(points).toHaveLength(1);
+    expect(points[0]).toMatchObject({ externalId: "v2-valid-point", value: 62 });
+  });
+
+  it("stores nothing in v2 strict mode when any row is malformed", async () => {
+    const t = convexTest(schema, modules);
+
+    const result = await t.action(api.sdkPush.ingestNormalizedPayloadV2, {
+      userId: "v2-strict-user",
+      provider: "apple",
+      requestId: "request-strict-1",
+      mode: "strict",
+      payload: {
+        events: [
+          {
+            category: "workout",
+            startDatetime: Date.parse("2026-08-01T08:00:00Z"),
+            externalId: "v2-valid-event",
+          },
+          {
+            category: "workout",
+            startDatetime: "invalid",
+          },
+        ],
+      },
+    });
+
+    expect(result).toMatchObject({
+      status: "rejected",
+      mode: "strict",
+      counts: { received: 2, accepted: 1, rejected: 1, stored: 0 },
+    });
+    expect(result.connectionId).toBeUndefined();
+
+    const [connections, events] = await t.run(async (ctx) =>
+      Promise.all([ctx.db.query("connections").collect(), ctx.db.query("events").collect()]),
+    );
+    expect(connections).toHaveLength(0);
+    expect(events).toHaveLength(0);
+  });
+
+  it("keeps accepted v2 writes idempotent across request retries", async () => {
+    const t = convexTest(schema, modules);
+    const request = {
+      userId: "v2-retry-user",
+      provider: "samsung" as const,
+      requestId: "request-retry-1",
+      payload: {
+        summaries: [
+          {
+            date: "2026-08-01",
+            category: "activity",
+            totalSteps: 8_500,
+          },
+        ],
+      },
+    };
+
+    await t.action(api.sdkPush.ingestNormalizedPayloadV2, request);
+    await t.action(api.sdkPush.ingestNormalizedPayloadV2, request);
+
+    const summaries = await t.run(async (ctx) => ctx.db.query("dailySummaries").collect());
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]).toMatchObject({
+      userId: "v2-retry-user",
+      provider: "samsung",
+      totalSteps: 8_500,
+    });
+  });
+
   it("ingests normalized Google Health Connect data into connections, sources, events, points, and summaries", async () => {
     const t = convexTest(schema, modules);
 
