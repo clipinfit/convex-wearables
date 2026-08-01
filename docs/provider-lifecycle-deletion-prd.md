@@ -11,10 +11,9 @@ owner_repo: convex-wearables
 
 ## Implementation status
 
-Completed for the `0.8.0` release candidate on 2026-08-01. The component,
+Completed and released in `0.8.0` on 2026-08-01. The component,
 typed client API, migration guide, automated tests, and public Fumadocs guide
-are implemented. Publishing and `../clipin-app` adoption remain explicit
-follow-up release/consumer steps rather than unfinished component scope.
+are implemented. Consumer adoption is outside the completed component scope.
 
 ## Summary
 

@@ -42,7 +42,7 @@ component data needs no migration.
 
 | Order | Workstream | PRD | Why now |
 |---|---|---|---|
-| Done (`0.8.0` candidate) | Provider lifecycle and durable deletion | [provider-lifecycle-deletion-prd.md](./provider-lifecycle-deletion-prd.md) | Implemented with bounded Workflow deletion, ingestion fencing, explicit provider deregistration, tests, and public MDX documentation. |
+| Released (`0.8.0`) | Provider lifecycle and durable deletion | [provider-lifecycle-deletion-prd.md](./provider-lifecycle-deletion-prd.md) | Released with bounded Workflow deletion, ingestion fencing, explicit provider deregistration, tests, and public MDX documentation. |
 | 2 | SDK ingestion resilience | [sdk-ingestion-resilience-prd.md](./sdk-ingestion-resilience-prd.md) | Prevents one malformed SDK row from discarding an otherwise useful batch; directly supported by recent upstream hardening. |
 | 3 | Provider-neutral workout enrichment | [workout-enrichment-prd.md](./workout-enrichment-prd.md) | Largest remaining provider-neutral data capability; builds on the existing retention system. |
 | 4 | Generic outgoing event delivery, phase 1 | [outgoing-webhooks-prd.md](./outgoing-webhooks-prd.md) | Gives hosts an optional internal event boundary without committing to external webhook infrastructure. |
@@ -61,16 +61,16 @@ component data needs no migration.
 
 ## Migration and upgrade matrix
 
-| Workstream | Component schema change | Existing-row rewrite | Host code/config change | `../clipin-app` path |
+| Workstream | Component schema change | Existing-row rewrite | Consumer code/config change | Generic consumer upgrade path |
 |---|---|---|---|---|
-| Reliability tranche (`0.7.0`) | None | None | Optional lookback config; Strava secret only if route is mounted | Already available as a package update; no migration command. Current Garmin-only route config needs no change. |
+| Reliability tranche (`0.7.0`) | None | None | Optional lookback config; Strava secret only if route is mounted | Update the package; no migration command is required. |
 | Provider lifecycle/deletion | Additive `dataDeletionOperations` table and indexes | None | Adopt explicit start/status APIs; optionally expose provider deregistration | Deploy schema, then replace direct whole-user deletion with workflow start/status handling. Keep local disconnect semantics. |
-| SDK ingestion resilience | None in phase 1 | None | Optional adoption of versioned v2 endpoint and partial-result handling | Package/code deploy only; Garmin webhook paths need no change. SDK clients migrate independently. |
-| Workout enrichment | Additive child tables and indexes | None required; optional historical enrichment | Adopt new read APIs only when UI needs detail | Update package, deploy schema, then add CLIPIN wrappers/UI. Do not query new APIs before deploy. |
-| Outgoing events phase 1 | None when host callback only | None | Configure optional host function | Update package; add CLIPIN internal function only when consuming events. |
+| SDK ingestion resilience | None in phase 1 | None | Optional adoption of versioned v2 endpoint and partial-result handling | Update and deploy the package; SDK clients migrate independently when ready. |
+| Workout enrichment | Additive child tables and indexes | None required; optional historical enrichment | Adopt new read APIs only when product surfaces need detail | Update the package and deploy schema before querying the new APIs. |
+| Outgoing events phase 1 | None when host callback only | None | Configure optional host function | Update the package and add a host function only when consuming events. |
 | Outgoing subscriptions phase 2 | Additive event/subscription tables | None | Route/secrets if external delivery enabled | Deploy schema before enabling delivery. Keep disabled by default. |
-| Live provider webhooks | Optional provider settings fields | None | Mount routes and configure secrets/provider subscriptions | No CLIPIN action until those providers are enabled. Roll out one provider at a time. |
-| Event retention | Additive policy/cursor tables | No rewrite, but enabling policy deletes expired data | Explicit policy configuration and dry run | Deploy with retain-forever default; approve and preview CLIPIN policy separately. |
+| Live provider webhooks | Optional provider settings fields | None | Mount routes and configure secrets/provider subscriptions | Roll out one enabled provider at a time. |
+| Event retention | Additive policy/cursor tables | No rewrite, but enabling policy deletes expired data | Explicit policy configuration and dry run | Deploy with retain-forever default; consumers approve and preview destructive policies separately. |
 
 Deferred work keeps its own migration analysis in its PRD but is not part of the
 active release pipeline.
@@ -86,8 +86,8 @@ Every implementation must answer these questions before code is merged:
 4. Must indexes on existing large tables be staged?
 5. Can old and new host code run against the compatibility release during a
    rolling deployment?
-6. What must `../clipin-app` update: package only, schema deploy, environment,
-   wrapper functions, UI reads, or a migration invocation?
+6. What must a generic consumer update: package only, schema deploy,
+   environment, wrapper functions, UI reads, or a migration invocation?
 7. Is rollback code-only, or would new writes make rollback unsafe?
 
 Additive tables should avoid indexes on existing tables when a child-table
