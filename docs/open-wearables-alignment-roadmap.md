@@ -45,9 +45,8 @@ component data needs no migration.
 | Released (`0.8.0`) | Provider lifecycle and durable deletion | [provider-lifecycle-deletion-prd.md](./provider-lifecycle-deletion-prd.md) | Released with bounded Workflow deletion, ingestion fencing, explicit provider deregistration, tests, and public MDX documentation. |
 | 2 | SDK ingestion resilience | [sdk-ingestion-resilience-prd.md](./sdk-ingestion-resilience-prd.md) | Prevents one malformed SDK row from discarding an otherwise useful batch; directly supported by recent upstream hardening. |
 | 3 | Provider-neutral workout enrichment | [workout-enrichment-prd.md](./workout-enrichment-prd.md) | Largest remaining provider-neutral data capability; builds on the existing retention system. |
-| 4 | Generic outgoing event delivery, phase 1 | [outgoing-webhooks-prd.md](./outgoing-webhooks-prd.md) | Gives hosts an optional internal event boundary without committing to external webhook infrastructure. |
-| 5 | Live provider webhooks | [polar-suunto-webhooks-prd.md](./polar-suunto-webhooks-prd.md) | Improves freshness for enabled providers after the internal event contract is stable. |
-| 6 | Event retention | [event-retention-policy-prd.md](./event-retention-policy-prd.md) | Extends the existing time-series policy to semantic events, with destructive behavior explicitly gated. |
+| 4 | Durable outgoing events and self-service webhooks | [outgoing-webhooks-prd.md](./outgoing-webhooks-prd.md) | Adds a shared typed event contract for host callbacks and authorized tenant/user HTTPS subscriptions, with signed delivery, durable retries, and recovery controls. |
+| 5 | Live provider webhooks | [polar-suunto-webhooks-prd.md](./polar-suunto-webhooks-prd.md) | Adds secure receipt-first Polar, WHOOP v2, and Suunto inbound notifications with durable processing and pull reconciliation; independent of deferred outgoing delivery. |
 
 ## Deferred or demand-driven work
 
@@ -58,6 +57,7 @@ component data needs no migration.
 | Ultrahuman | [ultrahuman-provider-prd.md](./ultrahuman-provider-prd.md) | Demand-driven on partner access and a concrete consumer requirement. |
 | Shared provider accounts | [shared-provider-accounts-prd.md](./shared-provider-accounts-prd.md) | Demand-driven on an explicit multi-profile/shared-device product model. |
 | Raw provider payload capture | [raw-provider-payload-storage-prd.md](./raw-provider-payload-storage-prd.md) | Optional debugging capability with privacy and storage costs; not a default ingestion dependency. |
+| Semantic event retention | [event-retention-policy-prd.md](./event-retention-policy-prd.md) | Deferred and low priority. This is a Convex Wearables-only convenience API, not an upstream feature; consumers can implement bounded periodic event cleanup themselves. |
 
 ## Migration and upgrade matrix
 
@@ -67,10 +67,8 @@ component data needs no migration.
 | Provider lifecycle/deletion | Additive `dataDeletionOperations` table and indexes | None | Adopt explicit start/status APIs; optionally expose provider deregistration | Deploy schema, then replace direct whole-user deletion with workflow start/status handling. Keep local disconnect semantics. |
 | SDK ingestion resilience | None in phase 1 | None | Optional adoption of versioned v2 endpoint and partial-result handling | Update and deploy the package; SDK clients migrate independently when ready. |
 | Workout enrichment | Additive child tables and indexes | None required; optional historical enrichment | Adopt new read APIs only when product surfaces need detail | Update the package and deploy schema before querying the new APIs. |
-| Outgoing events phase 1 | None when host callback only | None | Configure optional host function | Update the package and add a host function only when consuming events. |
-| Outgoing subscriptions phase 2 | Additive event/subscription tables | None | Route/secrets if external delivery enabled | Deploy schema before enabling delivery. Keep disabled by default. |
-| Live provider webhooks | Optional provider settings fields | None | Mount routes and configure secrets/provider subscriptions | Roll out one enabled provider at a time. |
-| Event retention | Additive policy/cursor tables | No rewrite, but enabling policy deletes expired data | Explicit policy configuration and dry run | Deploy with retain-forever default; consumers approve and preview destructive policies separately. |
+| Durable outgoing events and self-service webhooks | Additive endpoint, outbox-event, delivery, and attempt tables | None | Optional host callback; external delivery additionally requires host authorization wrappers, encryption configuration, and endpoint-management surfaces | Update the package and deploy the additive schema. Existing behavior is unchanged while delivery is disabled; enable callbacks or external subscriptions independently. |
+| Live provider webhooks | Additive receipt/registration tables and Suunto connection-lookup index | None | Mount only selected routes; configure provider secrets/dashboard or Polar registration | Deploy schema, enable one provider at a time, and keep pull reconciliation active. |
 
 Deferred work keeps its own migration analysis in its PRD but is not part of the
 active release pipeline.
