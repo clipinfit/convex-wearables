@@ -87,7 +87,7 @@ const POLAR_WORKOUT_TYPE_MAPPINGS: Array<[string, string | null, string]> = [
   ["OTHER", null, "other"],
 ];
 
-type PolarExercise = {
+export type PolarExercise = {
   id: string;
   device?: string;
   sport: string;
@@ -129,7 +129,7 @@ function parsePolarDuration(duration: string): number {
   return Number(hours) * 3600 + Number(minutes) * 60 + Number(seconds);
 }
 
-function normalizePolarExercise(exercise: PolarExercise): NormalizedEvent {
+export function normalizePolarExercise(exercise: PolarExercise): NormalizedEvent {
   const durationSeconds = parsePolarDuration(exercise.duration);
   const baseStart = Date.parse(exercise.start_time);
   const offsetMs = exercise.start_time_utc_offset * 60_000;
@@ -202,6 +202,18 @@ async function fetchPolarWorkouts(
   return records
     .map(normalizePolarExercise)
     .filter((event) => event.startDatetime >= startDate && event.startDatetime <= endDate);
+}
+
+export async function fetchPolarExerciseById(
+  accessToken: string,
+  entityId: string,
+): Promise<NormalizedEvent> {
+  const exercise = await makeAuthenticatedRequest<PolarExercise>(
+    POLAR_API_BASE,
+    `/v3/exercises/${encodeURIComponent(entityId)}`,
+    accessToken,
+  );
+  return normalizePolarExercise(exercise);
 }
 
 export const polarProvider: ProviderAdapter = {

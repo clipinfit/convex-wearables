@@ -15,7 +15,7 @@ import { isProviderApiError } from "./providers/oauth";
 import { getProvider } from "./providers/registry";
 import type { ProviderCredentials } from "./providers/types";
 import { type dataDeletionScope, providerDeregistrationStatus, providerName } from "./schema";
-import { durableWorkflow } from "./workflowManager";
+import { durableWorkflow, providerWebhookWorkflow } from "./workflowManager";
 
 const DELETION_BATCH_SIZE = 200;
 const BLOCKING_DELETION_STATUSES = ["pending", "running", "failed"] as const;
@@ -40,6 +40,7 @@ const deletedCountsValidator = v.object({
   backfillJobs: v.number(),
   oauthStates: v.number(),
   pendingGarminPushPayloads: v.number(),
+  providerWebhookReceipts: v.optional(v.number()),
   timeSeriesPolicyAssignments: v.number(),
   priorDataDeletionOperations: v.number(),
 });
@@ -49,6 +50,7 @@ type DeletionPhase = keyof DeletedCounts;
 
 const DELETION_PHASES: readonly DeletionPhase[] = [
   "pendingGarminPushPayloads",
+  "providerWebhookReceipts",
   "dataPoints",
   "timeSeriesRollups",
   "timeSeriesSeriesState",
@@ -84,6 +86,7 @@ function emptyDeletedCounts(): DeletedCounts {
     backfillJobs: 0,
     oauthStates: 0,
     pendingGarminPushPayloads: 0,
+    providerWebhookReceipts: 0,
     timeSeriesPolicyAssignments: 0,
     priorDataDeletionOperations: 0,
   };
@@ -412,6 +415,33 @@ export const prepareDeletionScope = internalMutation({
     }
 
     for (const connection of connections) {
+      const receipts = await ctx.db
+        .query("providerWebhookReceipts")
+        .withIndex("by_connection_status", (index) => index.eq("connectionId", connection._id))
+        .collect();
+      for (const receipt of receipts) {
+        if (
+          (receipt.status === "pending" ||
+            receipt.status === "processing" ||
+            receipt.status === "waiting_for_connection") &&
+          receipt.workflowId
+        ) {
+          try {
+            await providerWebhookWorkflow.cancel(ctx, receipt.workflowId as never);
+          } catch {
+            // Completion may race cancellation; the ingestion fence still prevents writes.
+          }
+        }
+        if (!["completed", "ignored", "canceled"].includes(receipt.status)) {
+          await ctx.db.patch(receipt._id, {
+            status: "canceled",
+            completedAt: Date.now(),
+            resultCode: "canceled_by_deletion",
+            payloadJson: "{}",
+          });
+        }
+      }
+
       const backfills = await ctx.db
         .query("backfillJobs")
         .withIndex("by_connection", (index) => index.eq("connectionId", connection._id))
@@ -575,6 +605,16 @@ async function deleteScopedBatchHandler(
     for (const connectionId of connectionIds) {
       const rows = await ctx.db
         .query("pendingGarminPushPayloads")
+        .withIndex("by_connection_status", (index) => index.eq("connectionId", connectionId))
+        .take(DELETION_BATCH_SIZE - deleted);
+      for (const row of rows) await ctx.db.delete(row._id);
+      deleted += rows.length;
+      if (deleted >= DELETION_BATCH_SIZE) break;
+    }
+  } else if (args.phase === "providerWebhookReceipts") {
+    for (const connectionId of connectionIds) {
+      const rows = await ctx.db
+        .query("providerWebhookReceipts")
         .withIndex("by_connection_status", (index) => index.eq("connectionId", connectionId))
         .take(DELETION_BATCH_SIZE - deleted);
       for (const row of rows) await ctx.db.delete(row._id);

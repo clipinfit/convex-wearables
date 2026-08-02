@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery, query } from "./_generated/server";
 import { assertIngestionAllowed } from "./lifecycle";
-import { eventCategory } from "./schema";
+import { eventCategory, providerName } from "./schema";
 
 // ---------------------------------------------------------------------------
 // Queries
@@ -182,10 +182,19 @@ export const storeEvent = internalMutation({
     await assertIngestionAllowed(ctx, { userId: args.userId, provider: source?.provider });
     // Deduplicate by externalId
     if (args.externalId) {
-      const existing = await ctx.db
+      const candidates = await ctx.db
         .query("events")
         .withIndex("by_external_id", (idx) => idx.eq("externalId", args.externalId))
-        .first();
+        .collect();
+      let existing: (typeof candidates)[number] | undefined;
+      for (const candidate of candidates) {
+        if (candidate.userId !== args.userId) continue;
+        const candidateSource = await ctx.db.get(candidate.dataSourceId);
+        if (candidateSource?.provider === source?.provider) {
+          existing = candidate;
+          break;
+        }
+      }
       if (existing) {
         // Update existing record
         await ctx.db.patch(existing._id, args);
@@ -232,10 +241,19 @@ export const storeEventBatch = internalMutation({
       });
       // Deduplicate by externalId
       if (event.externalId) {
-        const existing = await ctx.db
+        const candidates = await ctx.db
           .query("events")
           .withIndex("by_external_id", (idx) => idx.eq("externalId", event.externalId))
-          .first();
+          .collect();
+        let existing: (typeof candidates)[number] | undefined;
+        for (const candidate of candidates) {
+          if (candidate.userId !== event.userId) continue;
+          const candidateSource = await ctx.db.get(candidate.dataSourceId);
+          if (candidateSource?.provider === source?.provider) {
+            existing = candidate;
+            break;
+          }
+        }
         if (existing) {
           await ctx.db.patch(existing._id, event);
           ids.push(existing._id);
@@ -266,12 +284,24 @@ export const storeEventBatch = internalMutation({
 export const deleteByExternalId = internalMutation({
   args: {
     externalId: v.string(),
+    userId: v.optional(v.string()),
+    provider: v.optional(providerName),
   },
   handler: async (ctx, args) => {
-    const event = await ctx.db
+    const candidates = await ctx.db
       .query("events")
       .withIndex("by_external_id", (idx) => idx.eq("externalId", args.externalId))
-      .first();
+      .collect();
+    let event: (typeof candidates)[number] | undefined;
+    for (const candidate of candidates) {
+      if (args.userId && candidate.userId !== args.userId) continue;
+      if (args.provider) {
+        const source = await ctx.db.get(candidate.dataSourceId);
+        if (source?.provider !== args.provider) continue;
+      }
+      event = candidate;
+      break;
+    }
 
     if (event) {
       const segments = await ctx.db

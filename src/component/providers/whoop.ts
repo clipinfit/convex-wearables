@@ -22,7 +22,7 @@ interface WhoopWorkoutScore {
   altitude_gain_meter?: number;
 }
 
-interface WhoopWorkout {
+export interface WhoopWorkout {
   id: string;
   start: string;
   end: string;
@@ -45,7 +45,7 @@ interface WhoopSleepStageSummary {
   total_rem_sleep_time_milli?: number;
 }
 
-interface WhoopSleep {
+export interface WhoopSleep {
   id: string;
   start: string;
   end: string;
@@ -63,7 +63,7 @@ interface WhoopSleepCollection {
   nextToken?: string;
 }
 
-interface WhoopRecoveryRecord {
+export interface WhoopRecoveryRecord {
   id?: string;
   created_at?: string;
   score_state?: string;
@@ -230,7 +230,7 @@ function buildUrlParams(params: Record<string, string | undefined>): Record<stri
   return safe;
 }
 
-function normalizeWorkout(workout: WhoopWorkout): NormalizedEvent {
+export function normalizeWhoopWorkout(workout: WhoopWorkout): NormalizedEvent {
   const start = parseTimestamp(workout.start) ?? 0;
   const end = parseTimestamp(workout.end) ?? start;
   const score = workout.score;
@@ -261,7 +261,7 @@ function normalizeWorkout(workout: WhoopWorkout): NormalizedEvent {
   };
 }
 
-function normalizeSleep(record: WhoopSleep): NormalizedEvent {
+export function normalizeWhoopSleep(record: WhoopSleep): NormalizedEvent {
   const start = parseTimestamp(record.start) ?? 0;
   const end = parseTimestamp(record.end) ?? start;
   const stage = record.score?.stage_summary;
@@ -293,7 +293,10 @@ function normalizeSleep(record: WhoopSleep): NormalizedEvent {
   };
 }
 
-function normalizeRecovery(record: WhoopRecoveryRecord): NormalizedDataPoint[] {
+export function normalizeWhoopRecovery(
+  record: WhoopRecoveryRecord,
+  resourceId = record.id,
+): NormalizedDataPoint[] {
   if (record.score_state && record.score_state !== "SCORED") {
     return [];
   }
@@ -303,12 +306,15 @@ function normalizeRecovery(record: WhoopRecoveryRecord): NormalizedDataPoint[] {
   if (!score) return [];
 
   const points: NormalizedDataPoint[] = [];
+  const externalId = (seriesType: string) =>
+    resourceId ? `whoop-recovery-${resourceId}-${seriesType}` : undefined;
 
   if (score.recovery_score !== undefined) {
     points.push({
       seriesType: "recovery_score",
       recordedAt: createdAt,
       value: score.recovery_score,
+      externalId: externalId("recovery_score"),
     });
   }
 
@@ -317,6 +323,7 @@ function normalizeRecovery(record: WhoopRecoveryRecord): NormalizedDataPoint[] {
       seriesType: "resting_heart_rate",
       recordedAt: createdAt,
       value: score.resting_heart_rate,
+      externalId: externalId("resting_heart_rate"),
     });
   }
 
@@ -325,6 +332,7 @@ function normalizeRecovery(record: WhoopRecoveryRecord): NormalizedDataPoint[] {
       seriesType: "heart_rate_variability_rmssd",
       recordedAt: createdAt,
       value: score.hrv_rmssd_milli,
+      externalId: externalId("heart_rate_variability_rmssd"),
     });
   }
 
@@ -333,6 +341,7 @@ function normalizeRecovery(record: WhoopRecoveryRecord): NormalizedDataPoint[] {
       seriesType: "oxygen_saturation",
       recordedAt: createdAt,
       value: score.spo2_percentage,
+      externalId: externalId("oxygen_saturation"),
     });
   }
 
@@ -341,6 +350,7 @@ function normalizeRecovery(record: WhoopRecoveryRecord): NormalizedDataPoint[] {
       seriesType: "skin_temperature",
       recordedAt: createdAt,
       value: score.skin_temp_celsius,
+      externalId: externalId("skin_temperature"),
     });
   }
 
@@ -412,7 +422,7 @@ async function fetchWhoopWorkouts(
   for (const res of responses) {
     for (const workout of res.records ?? []) {
       if (workout.score_state === "SCORED" || !workout.score_state) {
-        records.push(normalizeWorkout(workout));
+        records.push(normalizeWhoopWorkout(workout));
       }
     }
   }
@@ -437,7 +447,7 @@ async function fetchWhoopSleep(
   for (const res of responses) {
     for (const sleep of res.records ?? []) {
       if (sleep.score_state === "SCORED" || !sleep.score_state) {
-        records.push(normalizeSleep(sleep));
+        records.push(normalizeWhoopSleep(sleep));
       }
     }
   }
@@ -461,11 +471,47 @@ async function fetchWhoopRecovery(
 
   for (const res of responses) {
     for (const record of res.records ?? []) {
-      points.push(...normalizeRecovery(record));
+      points.push(...normalizeWhoopRecovery(record));
     }
   }
 
   return points;
+}
+
+export async function fetchWhoopWorkoutById(
+  accessToken: string,
+  resourceId: string,
+): Promise<NormalizedEvent> {
+  const record = await makeAuthenticatedRequest<WhoopWorkout>(
+    API_BASE,
+    `/v2/activity/workout/${encodeURIComponent(resourceId)}`,
+    accessToken,
+  );
+  return normalizeWhoopWorkout(record);
+}
+
+export async function fetchWhoopSleepById(
+  accessToken: string,
+  resourceId: string,
+): Promise<NormalizedEvent> {
+  const record = await makeAuthenticatedRequest<WhoopSleep>(
+    API_BASE,
+    `/v2/activity/sleep/${encodeURIComponent(resourceId)}`,
+    accessToken,
+  );
+  return normalizeWhoopSleep(record);
+}
+
+export async function fetchWhoopRecoveryById(
+  accessToken: string,
+  resourceId: string,
+): Promise<NormalizedDataPoint[]> {
+  const record = await makeAuthenticatedRequest<WhoopRecoveryRecord>(
+    API_BASE,
+    `/v2/recovery/${encodeURIComponent(resourceId)}`,
+    accessToken,
+  );
+  return normalizeWhoopRecovery(record, resourceId);
 }
 
 async function fetchWhoopBodyMeasurement(accessToken: string): Promise<NormalizedDataPoint[]> {

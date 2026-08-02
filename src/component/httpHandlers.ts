@@ -155,6 +155,8 @@ export const stravaWebhookEvent = httpAction(async (_ctx, request) => {
     if (aspect_type === "delete") {
       await _ctx.runMutation(internal.events.deleteByExternalId, {
         externalId: `strava-${object_id}`,
+        userId: connection.userId,
+        provider: "strava",
       });
       return new Response("OK", { status: 200 });
     }

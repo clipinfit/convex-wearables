@@ -63,6 +63,7 @@ export interface DataDeletionCounts {
   backfillJobs: number;
   oauthStates: number;
   pendingGarminPushPayloads: number;
+  providerWebhookReceipts?: number;
   timeSeriesPolicyAssignments: number;
   priorDataDeletionOperations: number;
 }
@@ -289,6 +290,63 @@ export interface SdkRoutesConfig {
   authToken?: string;
 }
 
+export type LiveWebhookProviderName = "polar" | "whoop" | "suunto";
+export type ProviderWebhookReceiptStatus =
+  | "pending"
+  | "processing"
+  | "waiting_for_connection"
+  | "completed"
+  | "ignored"
+  | "failed"
+  | "canceled";
+export type ProviderWebhookRegistrationStatus =
+  | "unconfigured"
+  | "pending_verification"
+  | "active"
+  | "paused"
+  | "deactivated"
+  | "error";
+
+export interface LiveProviderWebhookRoutesConfig {
+  /** Mount the Polar AccessLink callback. */
+  polar?: { path?: string } | false;
+  /** Mount the WHOOP v2 callback. */
+  whoop?: { path?: string } | false;
+  /** Mount the Suunto callback. */
+  suunto?: { path?: string } | false;
+  /** Maximum accepted raw request size. Defaults to 512,000 bytes. */
+  maxBodyBytes?: number;
+}
+
+export interface ProviderWebhookReceipt {
+  _id: string;
+  provider: LiveWebhookProviderName;
+  eventType: string;
+  status: ProviderWebhookReceiptStatus;
+  receivedAt: number;
+  expiresAt: number;
+  attempt: number;
+  connectionId?: string;
+  completedAt?: number;
+  resultCode?: string;
+  errorCode?: string;
+}
+
+export interface ProviderWebhookStatus {
+  provider: LiveWebhookProviderName;
+  status: ProviderWebhookRegistrationStatus;
+  targetUrl?: string;
+  remoteId?: string;
+  modelVersion?: "v2";
+  eventTypes?: string[];
+  secretConfigured: boolean;
+  configuredAt?: number;
+  lastVerifiedAt?: number;
+  lastReconciledAt?: number;
+  lastErrorCode?: string;
+  updatedAt: number;
+}
+
 export interface RegisterRoutesConfig {
   /**
    * Garmin webhook routes.
@@ -300,6 +358,8 @@ export interface RegisterRoutesConfig {
    * Omitted by default; pass a config object to register it.
    */
   sdk?: SdkRoutesConfig | false;
+  /** Opt-in Polar, WHOOP v2, and Suunto inbound webhook routes. */
+  providerWebhooks?: LiveProviderWebhookRoutesConfig | false;
 }
 
 export type SdkProviderName = "apple" | "google" | "samsung";

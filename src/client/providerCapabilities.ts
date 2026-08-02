@@ -37,10 +37,10 @@ const PROVIDER_CAPABILITIES = {
     clientSdk: false,
     fileImport: false,
     webhookCallback: false,
-    webhookStream: false,
-    webhookPing: false,
+    webhookStream: true,
+    webhookPing: true,
     webhookRegistrationApi: false,
-    webhookInboundSecret: false,
+    webhookInboundSecret: true,
     maxHistoricalDays: null,
   },
   polar: {
@@ -50,9 +50,9 @@ const PROVIDER_CAPABILITIES = {
     fileImport: false,
     webhookCallback: false,
     webhookStream: false,
-    webhookPing: false,
-    webhookRegistrationApi: false,
-    webhookInboundSecret: false,
+    webhookPing: true,
+    webhookRegistrationApi: true,
+    webhookInboundSecret: true,
     maxHistoricalDays: null,
   },
   whoop: {
@@ -62,9 +62,9 @@ const PROVIDER_CAPABILITIES = {
     fileImport: false,
     webhookCallback: false,
     webhookStream: false,
-    webhookPing: false,
+    webhookPing: true,
     webhookRegistrationApi: false,
-    webhookInboundSecret: false,
+    webhookInboundSecret: true,
     maxHistoricalDays: null,
   },
   strava: {
@@ -190,14 +190,8 @@ export function createProviderCapabilities(
   capabilities: Partial<ProviderCapabilities>,
 ): ProviderCapabilities {
   const merged = { ...DEFAULT_CAPABILITIES, ...capabilities };
-  if (merged.webhookStream && merged.webhookPing) {
-    throw new Error("webhookStream and webhookPing are mutually exclusive");
-  }
   if (merged.webhookPing && !merged.restPull) {
     throw new Error("webhookPing requires restPull because data must be fetched after the ping");
-  }
-  if (merged.webhookInboundSecret && !merged.webhookRegistrationApi) {
-    throw new Error("webhookInboundSecret requires webhookRegistrationApi");
   }
   return merged;
 }

@@ -36,7 +36,9 @@ import type {
   EventsPage,
   GarminRoutesConfig,
   HealthEvent,
+  LiveProviderWebhookRoutesConfig,
   LiveSyncMode,
+  LiveWebhookProviderName,
   ProviderCapabilities,
   ProviderCapabilityInfo,
   ProviderConfiguration,
@@ -44,6 +46,10 @@ import type {
   ProviderDeregistrationResult,
   ProviderDeregistrationStatus,
   ProviderName,
+  ProviderWebhookReceipt,
+  ProviderWebhookReceiptStatus,
+  ProviderWebhookRegistrationStatus,
+  ProviderWebhookStatus,
   RegisterRoutesConfig,
   SdkIngestionCategoryCounts,
   SdkIngestionMode,
@@ -118,7 +124,9 @@ export type {
   EventsPage,
   GarminRoutesConfig,
   HealthEvent,
+  LiveProviderWebhookRoutesConfig,
   LiveSyncMode,
+  LiveWebhookProviderName,
   ProviderCapabilities,
   ProviderCapabilityInfo,
   ProviderConfiguration,
@@ -126,6 +134,10 @@ export type {
   ProviderDeregistrationResult,
   ProviderDeregistrationStatus,
   ProviderName,
+  ProviderWebhookReceipt,
+  ProviderWebhookReceiptStatus,
+  ProviderWebhookRegistrationStatus,
+  ProviderWebhookStatus,
   RegisterRoutesConfig,
   SdkIngestionCategoryCounts,
   SdkIngestionMode,
@@ -179,6 +191,7 @@ type ActionRunner = Pick<GenericActionCtx<GenericDataModel>, "runAction">;
 
 const GARMIN_PUSH_COMPONENT_FUNCTION = "wearables.garminWebhooks.processPushPayload";
 const MAX_SDK_V2_REQUEST_BYTES = 2_000_000;
+const DEFAULT_PROVIDER_WEBHOOK_MAX_BYTES = 512_000;
 
 // ---------------------------------------------------------------------------
 // WearablesClient — the main API surface for host apps
@@ -771,6 +784,91 @@ export class WearablesClient {
     return await ctx.runMutation(this.component.lifecycle.cleanupDataDeletionOperation, args);
   }
 
+  // -----------------------------------------------------------------------
+  // Live provider webhooks
+  // -----------------------------------------------------------------------
+
+  async configureProviderWebhook(
+    ctx: MutationRunner,
+    args: {
+      provider: LiveWebhookProviderName;
+      targetUrl?: string;
+      webhookSecret?: string;
+      eventTypes?: string[];
+      status?: ProviderWebhookRegistrationStatus;
+    },
+  ): Promise<string> {
+    return await ctx.runMutation(this.component.providerWebhooks.configureProviderWebhook, args);
+  }
+
+  async getProviderWebhookStatus(
+    ctx: QueryRunner,
+    args: { provider: LiveWebhookProviderName },
+  ): Promise<ProviderWebhookStatus | null> {
+    return await ctx.runQuery(this.component.providerWebhooks.getProviderWebhookStatus, args);
+  }
+
+  async getPolarWebhookStatus(ctx: QueryRunner): Promise<ProviderWebhookStatus | null> {
+    return await ctx.runQuery(this.component.providerWebhooks.getPolarWebhookStatus, {});
+  }
+
+  async listProviderWebhookReceipts(
+    ctx: QueryRunner,
+    args: {
+      provider?: LiveWebhookProviderName;
+      status?: ProviderWebhookReceiptStatus;
+      before?: number;
+      limit?: number;
+    } = {},
+  ): Promise<{ receipts: ProviderWebhookReceipt[]; nextCursor: number | null }> {
+    return await ctx.runQuery(this.component.providerWebhooks.listProviderWebhookReceipts, args);
+  }
+
+  async retryProviderWebhookReceipt(ctx: MutationRunner, args: { receiptId: string }) {
+    return await ctx.runMutation(this.component.providerWebhooks.retryProviderWebhookReceipt, args);
+  }
+
+  async cancelProviderWebhookReceipt(ctx: MutationRunner, args: { receiptId: string }) {
+    return await ctx.runMutation(
+      this.component.providerWebhooks.cancelProviderWebhookReceipt,
+      args,
+    );
+  }
+
+  async cleanupProviderWebhookReceipts(ctx: MutationRunner, args: { now?: number } = {}) {
+    return await ctx.runMutation(
+      this.component.providerWebhooks.cleanupProviderWebhookReceipts,
+      args,
+    );
+  }
+
+  async createPolarWebhook(ctx: ActionRunner, args: { targetUrl: string; eventTypes?: string[] }) {
+    return await ctx.runAction(this.component.providerWebhooks.createPolarWebhook, args);
+  }
+
+  async updatePolarWebhook(ctx: ActionRunner, args: { targetUrl?: string; eventTypes?: string[] }) {
+    return await ctx.runAction(this.component.providerWebhooks.updatePolarWebhook, args);
+  }
+
+  async activatePolarWebhook(ctx: ActionRunner) {
+    return await ctx.runAction(this.component.providerWebhooks.activatePolarWebhook, {});
+  }
+
+  async deactivatePolarWebhook(ctx: ActionRunner) {
+    return await ctx.runAction(this.component.providerWebhooks.deactivatePolarWebhook, {});
+  }
+
+  async deletePolarWebhook(ctx: ActionRunner) {
+    return await ctx.runAction(this.component.providerWebhooks.deletePolarWebhook, {});
+  }
+
+  async reconcilePolarWebhookRegistration(ctx: ActionRunner) {
+    return await ctx.runAction(
+      this.component.providerWebhooks.reconcilePolarWebhookRegistration,
+      {},
+    );
+  }
+
   /**
    * Revoke access at a supported provider, then clear the local connection.
    * Local disconnect still occurs when remote deregistration fails.
@@ -843,8 +941,11 @@ export function registerRoutes(
 ) {
   const garminConfig = config?.garmin;
   const sdkConfig = config?.sdk;
+  const providerWebhookConfig = config?.providerWebhooks;
   const registerGarminRoutes = garminConfig !== false;
   const registerSdkRoutes = sdkConfig !== undefined && sdkConfig !== false;
+  const registerProviderWebhooks =
+    providerWebhookConfig !== undefined && providerWebhookConfig !== false;
 
   if (registerGarminRoutes) {
     const webhookPath = garminConfig?.webhookPath ?? "/webhooks/garmin/push";
@@ -1007,6 +1108,99 @@ export function registerRoutes(
     }
   }
 
+  if (registerProviderWebhooks) {
+    const maxBodyBytes = Math.min(
+      Math.max(providerWebhookConfig.maxBodyBytes ?? DEFAULT_PROVIDER_WEBHOOK_MAX_BYTES, 1),
+      1_000_000,
+    );
+    const routeSettings: Array<{
+      provider: LiveWebhookProviderName;
+      path: string;
+    }> = [];
+    if (providerWebhookConfig.whoop !== undefined && providerWebhookConfig.whoop !== false) {
+      routeSettings.push({
+        provider: "whoop",
+        path: providerWebhookConfig.whoop.path ?? "/wearables/webhooks/whoop/v2",
+      });
+    }
+    if (providerWebhookConfig.polar !== undefined && providerWebhookConfig.polar !== false) {
+      routeSettings.push({
+        provider: "polar",
+        path: providerWebhookConfig.polar.path ?? "/wearables/webhooks/polar",
+      });
+    }
+    if (providerWebhookConfig.suunto !== undefined && providerWebhookConfig.suunto !== false) {
+      routeSettings.push({
+        provider: "suunto",
+        path: providerWebhookConfig.suunto.path ?? "/wearables/webhooks/suunto",
+      });
+    }
+
+    for (const route of routeSettings) {
+      http.route({
+        path: route.path,
+        method: "POST",
+        handler: httpActionGeneric(async (ctx, request) => {
+          const declaredLength = Number(request.headers.get("content-length"));
+          if (Number.isFinite(declaredLength) && declaredLength > maxBodyBytes) {
+            return providerWebhookJsonResponse("payload_too_large", 413);
+          }
+          let rawBodyBytes: Uint8Array;
+          try {
+            rawBodyBytes = new Uint8Array(await request.arrayBuffer());
+          } catch {
+            return providerWebhookJsonResponse("invalid_body", 400);
+          }
+          if (rawBodyBytes.byteLength > maxBodyBytes) {
+            return providerWebhookJsonResponse("payload_too_large", 413);
+          }
+          const signature =
+            route.provider === "whoop"
+              ? request.headers.get("x-whoop-signature")
+              : route.provider === "polar"
+                ? request.headers.get("polar-webhook-signature")
+                : request.headers.get("x-hmac-sha256-signature");
+          try {
+            const result = (await ctx.runAction(component.providerWebhooks.acceptProviderWebhook, {
+              provider: route.provider,
+              rawBodyBase64: bytesToBase64(rawBodyBytes),
+              signature: signature ?? undefined,
+              signatureTimestamp: request.headers.get("x-whoop-signature-timestamp") ?? undefined,
+              eventHeader: request.headers.get("polar-webhook-event") ?? undefined,
+              maxBodyBytes,
+            })) as {
+              accepted: boolean;
+              duplicate: boolean;
+              ping: boolean;
+              receiptId?: string;
+              statusCode?: number;
+              errorCode?: string;
+            };
+            if (!result.accepted) {
+              return providerWebhookJsonResponse(
+                result.errorCode ?? "rejected",
+                result.statusCode ?? 400,
+              );
+            }
+            return new Response(
+              JSON.stringify({
+                status: result.ping ? "ok" : result.duplicate ? "duplicate" : "accepted",
+                receiptId: result.receiptId,
+              }),
+              { status: 200, headers: { "Content-Type": "application/json" } },
+            );
+          } catch (error) {
+            console.error("Provider webhook durable acceptance failed", {
+              provider: route.provider,
+              error: serializeError(error),
+            });
+            return providerWebhookJsonResponse("durable_acceptance_failed", 503);
+          }
+        }),
+      });
+    }
+  }
+
   if (registerSdkRoutes) {
     const syncPath = sdkConfig?.syncPath ?? "/sdk/sync";
     const syncV2Path = sdkConfig?.syncV2Path ?? "/sdk/sync/v2";
@@ -1119,6 +1313,19 @@ export function registerRoutes(
       });
     }
   }
+}
+
+function providerWebhookJsonResponse(code: string, status: number): Response {
+  return new Response(JSON.stringify({ error: code }), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
 }
 
 /**

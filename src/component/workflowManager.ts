@@ -17,3 +17,19 @@ export const durableWorkflow = new WorkflowManager(workflowComponent, {
     },
   },
 });
+
+const providerWebhookWorkflowComponent =
+  components.providerWebhookWorkflow as unknown as WorkflowComponentApi<"providerWebhookWorkflow">;
+
+/** Dedicated queue so bursty provider callbacks cannot starve pull sync or deletion work. */
+export const providerWebhookWorkflow = new WorkflowManager(providerWebhookWorkflowComponent, {
+  workpoolOptions: {
+    maxParallelism: 5,
+    retryActionsByDefault: true,
+    defaultRetryBehavior: {
+      maxAttempts: 4,
+      initialBackoffMs: 1_000,
+      base: 2,
+    },
+  },
+});

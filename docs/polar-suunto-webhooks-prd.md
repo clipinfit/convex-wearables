@@ -1,6 +1,6 @@
 ---
 date: 2026-08-01
-status: PLANNED
+status: IMPLEMENTED
 priority: P1
 semver: minor
 target_version: 0.11.0
@@ -9,6 +9,34 @@ reference_repo: ../open-wearables
 ---
 
 # Polar, Suunto, and WHOOP Live Provider Webhooks PRD
+
+> **Implementation status:** Complete for the planned `0.11.0` minor release.
+> The package now contains the opt-in routes, dedicated durable receipt
+> workflow, WHOOP v2 targeted update/delete processing, Polar `EXERCISE`
+> registration and targeted processing, Suunto targeted/inline processing,
+> operator APIs, bounded cleanup, deletion integration, tests, README and
+> upgrade guidance, and Fumadocs documentation. Publishing remains a separate
+> operator action.
+
+## Final implementation decisions
+
+- Webhook processing uses a second installed Workflow/Workpool component with
+  maximum parallelism 5 and four action attempts using 1-second exponential
+  backoff. It cannot consume the pull/deletion workflow budget.
+- The default raw body limit is 512,000 bytes, capped at 1,000,000 by the route
+  helper. Suunto accepts at most 5,000 inline samples per notification.
+- WHOOP verification reuses the stored OAuth client secret. Polar's one-time
+  signing secret and Suunto's notification secret live in the component-owned
+  registration row and are excluded from public queries.
+- WHOOP targeted recovery uses the v2 resource identifier and stable
+  `whoop-recovery-<resource>-<series>` external IDs.
+- Polar initially subscribes only to `EXERCISE`; incomplete Polar data families
+  are rejected at registration instead of being silently discarded.
+- Successful/ignored payloads are redacted immediately. Failed receipt payloads
+  and metadata expire within seven days; unknown-connection payloads use the
+  shorter 15-minute race window.
+- WHOOP, Polar, and Suunto ship together because the shared foundation and each
+  provider's documented first-release scope are complete.
 
 ## Summary
 

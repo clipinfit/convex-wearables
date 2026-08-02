@@ -24,6 +24,7 @@ type Modules = {
   lifecycle: typeof import("../lifecycle.js");
   menstrualCycles: typeof import("../menstrualCycles.js");
   oauthActions: typeof import("../oauthActions.js");
+  providerWebhooks: typeof import("../providerWebhooks.js");
   sdkPush: typeof import("../sdkPush.js");
   summaries: typeof import("../summaries.js");
   synthetic: typeof import("../synthetic.js");

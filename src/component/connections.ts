@@ -107,6 +107,22 @@ export const getByProviderUser = internalQuery({
   },
 });
 
+export const getByProviderUsername = internalQuery({
+  args: {
+    provider: providerName,
+    providerUsername: v.string(),
+  },
+  returns: v.union(v.any(), v.null()),
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("connections")
+      .withIndex("by_provider_username", (idx) =>
+        idx.eq("provider", args.provider).eq("providerUsername", args.providerUsername),
+      )
+      .first();
+  },
+});
+
 /**
  * Get sync status for a user across all their connections.
  */

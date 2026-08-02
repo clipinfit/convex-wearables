@@ -56,6 +56,58 @@ until Garmin delivers a new Activity File notification or the consumer
 explicitly requests a supported Garmin backfill. Time-series rows derived from
 `activityDetails` and FIT follow the consumer's existing storage policy.
 
+## Version 0.11.0: durable live-provider webhooks
+
+This is a backwards-compatible minor release. It adds opt-in inbound webhooks
+for WHOOP v2, Polar, and Suunto. Existing pull syncs, routes, provider
+credentials, and stored health rows continue to work unchanged.
+
+Schema additions are additive:
+
+- `providerWebhookReceipts`, with idempotency, status, expiry, and connection
+  lifecycle indexes;
+- `providerWebhookRegistrations`, containing application-level callback state;
+- `connections.by_provider_username` for bounded Suunto resolution; and
+- a second installed Workflow/Workpool component dedicated to callback work.
+
+No stored-row rewrite or host-run migration is required. After updating the
+package, deploy Convex so the new component schema, functions, and child
+Workflow are installed. Consumers that do not configure `providerWebhooks` in
+`registerRoutes` need no environment, dashboard, or routing changes.
+
+Recommended staged enablement:
+
+1. Keep periodic pull reconciliation active.
+2. Mount one provider route with `registerRoutes`.
+3. Configure safe local registration state. Suunto requires its notification
+   secret; WHOOP reuses its OAuth client secret.
+4. Configure the provider dashboard, or call `createPolarWebhook` for Polar.
+5. Deliver a signed test/real event and inspect receipt status.
+6. Monitor failed receipts before enabling another provider.
+
+WHOOP supports only v2 webhook events. Polar's initial live event coverage is
+`EXERCISE`; do not request unsupported Polar event types. Suunto supports
+targeted workout fetches and bounded inline activity, sleep, and recovery
+samples. Provider callbacks are at-least-once signals and do not replace pull
+reconciliation.
+
+Registration, receipt retry/cancel, and status functions do not implement host
+authorization. Expose them only through operator/tenant-authorized wrappers.
+Secrets and raw payloads are never returned by the public status API.
+
+Rollback:
+
+1. Disable/delete the remote provider callback first.
+2. Keep pull sync running.
+3. Allow accepted receipts to finish or cancel them explicitly.
+4. Unmount the route.
+5. Leave the additive tables in place until bounded receipt cleanup completes.
+
+The planned SemVer classification is minor (`0.11.0` after `0.10.0`). A patch
+would be incorrect because this release adds public routes, actions, types,
+tables, and provider capabilities. A major release is unnecessary because all
+new routes are opt-in and existing behavior is preserved.
+
 ## Synthetic provider
 
 The proposed release after `0.4.0` is `0.5.0`. It adds `"synthetic"` to

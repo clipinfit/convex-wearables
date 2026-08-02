@@ -213,7 +213,7 @@ async function paginatedWorkouts(
   return items;
 }
 
-function normalizeWorkout(raw: any): NormalizedEvent {
+export function normalizeSuuntoWorkout(raw: any): NormalizedEvent {
   const start = typeof raw.startTime === "number" ? raw.startTime : undefined;
   const end = typeof raw.stopTime === "number" ? raw.stopTime : undefined;
   const duration = typeof raw.totalTime === "number" ? raw.totalTime : undefined;
@@ -248,7 +248,7 @@ function normalizeWorkout(raw: any): NormalizedEvent {
   };
 }
 
-function normalizeSleep(raw: any): NormalizedEvent | null {
+export function normalizeSuuntoSleep(raw: any): NormalizedEvent | null {
   const entry = raw.entryData ?? {};
   const startTime = parseTimestamp(entry.BedtimeStart);
   const endTime = parseTimestamp(entry.BedtimeEnd);
@@ -306,7 +306,7 @@ async function fetchSleepEvents(
 
     const entries = Array.isArray(response) ? response : [];
     for (const entry of entries) {
-      const normalized = normalizeSleep(entry);
+      const normalized = normalizeSuuntoSleep(entry);
       if (normalized) events.push(normalized);
     }
 
@@ -317,7 +317,7 @@ async function fetchSleepEvents(
   return events;
 }
 
-function normalizeRecoverySample(raw: any): NormalizedDataPoint[] {
+export function normalizeSuuntoRecoverySample(raw: any): NormalizedDataPoint[] {
   const timestamp = parseTimestamp(raw.timestamp);
   if (!timestamp) return [];
   const entry = raw.entryData ?? {};
@@ -333,7 +333,7 @@ function normalizeRecoverySample(raw: any): NormalizedDataPoint[] {
   ];
 }
 
-function normalizeActivitySamples(raw: any): NormalizedDataPoint[] {
+export function normalizeSuuntoActivitySample(raw: any): NormalizedDataPoint[] {
   const timestamp = parseTimestamp(raw.timestamp);
   if (!timestamp) return [];
   const entry = raw.entryData ?? {};
@@ -498,7 +498,7 @@ async function fetchSuuntoRecovery(
     RECOVERY_ENDPOINT,
     credentials,
   );
-  return raws.flatMap(normalizeRecoverySample);
+  return raws.flatMap(normalizeSuuntoRecoverySample);
 }
 
 async function fetchSuuntoActivity(
@@ -514,7 +514,7 @@ async function fetchSuuntoActivity(
     ACTIVITY_ENDPOINT,
     credentials,
   );
-  return raws.flatMap(normalizeActivitySamples);
+  return raws.flatMap(normalizeSuuntoActivitySample);
 }
 
 async function aggregateDailySummaries(
@@ -570,13 +570,27 @@ export async function getSuuntoUserInfo(
   };
 }
 
+export async function fetchSuuntoWorkoutById(
+  accessToken: string,
+  workoutKey: string,
+  credentials?: ProviderCredentials,
+): Promise<NormalizedEvent> {
+  const response = await makeAuthenticatedRequest<any>(
+    API_BASE,
+    `/v3/workouts/${encodeURIComponent(workoutKey)}`,
+    accessToken,
+    { headers: buildHeaders(credentials?.subscriptionKey) },
+  );
+  return normalizeSuuntoWorkout(response?.payload ?? response);
+}
+
 export const suuntoProvider: ProviderAdapter = {
   name: "suunto",
   oauthConfig: suuntoOAuthConfig,
   getUserInfo: getSuuntoUserInfo,
   fetchEvents: async (accessToken, startDate, endDate, credentials) => {
     const workouts = await paginatedWorkouts(accessToken, startDate, endDate, credentials);
-    const normalizedWorkouts = workouts.map(normalizeWorkout);
+    const normalizedWorkouts = workouts.map(normalizeSuuntoWorkout);
     const sleep = await fetchSleepEvents(accessToken, startDate, endDate, credentials);
     return [...normalizedWorkouts, ...sleep];
   },

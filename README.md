@@ -18,7 +18,7 @@ Built as a drop-in module: install the component, pass your provider credentials
 - **Deduplication** — events and data points are deduped by external ID and source+timestamp
 - **Precomputed daily summaries** — activity, sleep, recovery, and body composition aggregates
 - **Durable data lifecycle** — explicit disconnect, provider deregistration, and resumable provider/user deletion workflows
-- **Webhook + SDK push support** — Garmin webhooks plus normalized mobile SDK ingestion for Apple Health / Google Health Connect
+- **Webhook + SDK push support** — durable WHOOP v2, Polar, Suunto, and Garmin inbound webhooks plus normalized mobile SDK ingestion
 - **Synthetic provider** — deterministic, explicitly enabled wearable fixtures using the same normalized model
 - **Full TypeScript** — end-to-end type safety from provider API to client query
 
@@ -885,6 +885,118 @@ existing time-series storage policies.
 If you customize `oauthCallbackPath`, the redirect URI used when calling
 `oauthActions.generateAuthUrl` must match that same callback path.
 
+### WHOOP v2, Polar, and Suunto live webhooks
+
+Version `0.11.0` adds opt-in, receipt-first inbound callbacks for WHOOP v2,
+Polar AccessLink, and Suunto. They complement scheduled pull sync; they do not
+replace reconciliation. Mount only the providers you intend to enable:
+
+```ts
+// convex/http.ts
+import { httpRouter } from "convex/server";
+import { registerRoutes } from "@clipin/convex-wearables";
+import { components } from "./_generated/api";
+
+const http = httpRouter();
+
+registerRoutes(http, components.wearables, {
+  garmin: false, // omit this only if Garmin routes are not needed
+  providerWebhooks: {
+    whoop: { path: "/wearables/webhooks/whoop/v2" },
+    polar: { path: "/wearables/webhooks/polar" },
+    suunto: { path: "/wearables/webhooks/suunto" },
+  },
+});
+
+export default http;
+```
+
+No live-provider route is mounted unless `providerWebhooks` and that provider
+key are both present. The request path reads at most 512,000 bytes by default,
+verifies the signature over the exact body, validates the notification, and
+transactionally stores/deduplicates a receipt while starting a dedicated
+Workflow. Targeted provider fetches, inline sample normalization, deletes, and
+retries run after acknowledgement with an isolated five-action concurrency
+budget and four-attempt exponential retry policy.
+
+Configure WHOOP's callback URL in its developer dashboard. WHOOP uses the
+provider `clientSecret` already configured for OAuth and accepts only v2 UUID
+resource notifications. Record safe local status explicitly:
+
+```ts
+await wearables.configureProviderWebhook(ctx, {
+  provider: "whoop",
+  targetUrl: `${convexSiteUrl}/wearables/webhooks/whoop/v2`,
+  eventTypes: [
+    "workout.updated",
+    "workout.deleted",
+    "sleep.updated",
+    "sleep.deleted",
+    "recovery.updated",
+    "recovery.deleted",
+  ],
+});
+```
+
+Configure Suunto's callback and notification secret in API Zone, then store the
+same secret through an operator-authorized wrapper:
+
+```ts
+await wearables.configureProviderWebhook(ctx, {
+  provider: "suunto",
+  targetUrl: `${convexSiteUrl}/wearables/webhooks/suunto`,
+  webhookSecret: process.env.SUUNTO_WEBHOOK_SECRET,
+  eventTypes: [
+    "WORKOUT_CREATED",
+    "SUUNTO_247_SLEEP_CREATED",
+    "SUUNTO_247_ACTIVITY_CREATED",
+    "SUUNTO_247_RECOVERY_CREATED",
+  ],
+});
+```
+
+Polar registration is component-managed because Polar permits one callback per
+API client and returns its signing secret only once:
+
+```ts
+await wearables.createPolarWebhook(ctx, {
+  targetUrl: `${convexSiteUrl}/wearables/webhooks/polar`,
+  eventTypes: ["EXERCISE"],
+});
+```
+
+This release intentionally subscribes only to Polar `EXERCISE`, the event with
+a complete targeted normalization path. Use `updatePolarWebhook`,
+`activatePolarWebhook`, `deactivatePolarWebhook`, `deletePolarWebhook`, and
+`reconcilePolarWebhookRegistration` from operator-authorized actions. If
+reconciliation reports `signing_secret_missing_recreate_required`, delete the
+remote registration and recreate it; Polar cannot reveal the old secret.
+
+Receipt and registration APIs are deliberately authorization-agnostic. Wrap
+them with your host's operator/tenant authorization before exposing them:
+
+```ts
+await wearables.getProviderWebhookStatus(ctx, { provider: "whoop" });
+await wearables.listProviderWebhookReceipts(ctx, {
+  provider: "whoop",
+  status: "failed",
+  limit: 20,
+});
+await wearables.retryProviderWebhookReceipt(ctx, { receiptId });
+await wearables.cancelProviderWebhookReceipt(ctx, { receiptId });
+```
+
+Public status never returns raw payloads or signing secrets. Successful and
+ignored payloads are redacted immediately; failed payloads are retained only
+within the seven-day receipt window. Unknown connections get a bounded
+15-minute OAuth race window. Provider/user deletion cancels and removes
+resolved receipts, and the normal ingestion fence prevents late writes.
+
+Keep scheduled pulls enabled for WHOOP, Polar, and Suunto. Webhooks are
+at-least-once signals: duplicates are harmless, but providers can still omit or
+reorder them. Incoming provider webhooks are unrelated to the planned outgoing
+consumer webhook feature.
+
 ### Strava Webhooks
 
 The component provides HTTP handlers for Strava's [webhook events API](https://developers.strava.com/docs/webhooks/):
@@ -1018,9 +1130,9 @@ The SDK payload also accepts `device` and `dailySummaries` as compatibility alia
 | Apple Health | Normalized SDK push | Workouts, sleep, time-series, summaries from your mobile app | Implemented via SDK |
 | Samsung Health | Normalized SDK push | Workouts, sleep, time-series, summaries from your mobile app | Implemented via SDK |
 | Google Health Connect | Normalized SDK push | Workouts, sleep, time-series, summaries from your mobile app | Implemented via SDK |
-| Whoop | OAuth pull sync | Workouts, sleep, recovery, body data | Implemented |
-| Polar | OAuth pull sync | Workouts and provider data sync | Implemented |
-| Suunto | OAuth pull sync | Workouts, sleep, recovery, activity data | Implemented |
+| Whoop | OAuth pull + signed v2 targeted-fetch webhooks | Workouts, sleep, recovery, body data | Implemented |
+| Polar | OAuth pull + signed targeted-fetch webhooks | Workouts; live `EXERCISE` | Implemented |
+| Suunto | OAuth pull + signed inline/targeted webhooks | Workouts, sleep, recovery, activity data | Implemented |
 | Synthetic | Deterministic local generation | Workouts, sleep, time-series, summaries through `SynthDevice` | Implemented; explicit opt-in |
 
 SDK-push providers rely on your app to send normalized payloads. The component stores and queries that data, but it does not yet fetch Apple Health, Samsung Health, or Google Health Connect data directly from vendor APIs.

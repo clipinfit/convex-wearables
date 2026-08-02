@@ -347,6 +347,23 @@ describe("package exports", () => {
       liveSyncConfigurable: true,
       supportsManualSync: true,
     });
+    expect(getProviderCapabilityInfo("whoop")).toMatchObject({
+      restPull: true,
+      webhookPing: true,
+      webhookInboundSecret: true,
+      liveSyncConfigurable: true,
+    });
+    expect(getProviderCapabilityInfo("polar")).toMatchObject({
+      webhookPing: true,
+      webhookRegistrationApi: true,
+      webhookInboundSecret: true,
+    });
+    expect(getProviderCapabilityInfo("suunto")).toMatchObject({
+      restPull: true,
+      webhookStream: true,
+      webhookPing: true,
+      webhookInboundSecret: true,
+    });
     expect(getProviderCapabilityInfo("google")).toMatchObject({
       clientSdk: true,
       defaultLiveSyncMode: null,
@@ -409,6 +426,102 @@ describe("package exports", () => {
 });
 
 describe("registerRoutes", () => {
+  it("mounts live provider routes only when explicitly enabled and preserves raw bodies", async () => {
+    const routes: Array<{
+      handler: { _handler: (ctx: unknown, request: Request) => Promise<Response> };
+      method: string;
+      path: string;
+    }> = [];
+    const http = { route: (route: (typeof routes)[number]) => routes.push(route) };
+    const component = {
+      providerWebhooks: { acceptProviderWebhook: "accept-provider-webhook" },
+    } as unknown as WearablesComponent;
+
+    registerRoutes(http as never, component, {
+      garmin: false,
+      providerWebhooks: { whoop: {}, polar: false, suunto: false },
+    });
+
+    expect(routes.map((route) => route.path)).toEqual(["/wearables/webhooks/whoop/v2"]);
+    const rawBody = '{ "type": "workout.updated", "user_id": 7, "id": "uuid" }';
+    const calls: unknown[] = [];
+    const response = await routes[0].handler._handler(
+      {
+        runAction: async (ref: unknown, args: unknown) => {
+          calls.push({ ref, args });
+          return { accepted: true, duplicate: false, ping: false, receiptId: "receipt-1" };
+        },
+      },
+      new Request("https://example.com/wearables/webhooks/whoop/v2", {
+        method: "POST",
+        headers: {
+          "x-whoop-signature": "signature",
+          "x-whoop-signature-timestamp": "1770000000",
+        },
+        body: rawBody,
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(calls).toEqual([
+      {
+        ref: "accept-provider-webhook",
+        args: {
+          provider: "whoop",
+          rawBodyBase64: btoa(rawBody),
+          signature: "signature",
+          signatureTimestamp: "1770000000",
+          eventHeader: undefined,
+          maxBodyBytes: 512000,
+        },
+      },
+    ]);
+  });
+
+  it("maps provider rejection and body limits to provider-compatible responses", async () => {
+    const routes: Array<{
+      handler: { _handler: (ctx: unknown, request: Request) => Promise<Response> };
+      method: string;
+      path: string;
+    }> = [];
+    const http = { route: (route: (typeof routes)[number]) => routes.push(route) };
+    const component = {
+      providerWebhooks: { acceptProviderWebhook: "accept-provider-webhook" },
+    } as unknown as WearablesComponent;
+    registerRoutes(http as never, component, {
+      garmin: false,
+      providerWebhooks: { polar: {}, maxBodyBytes: 10 },
+    });
+    const route = routes[0];
+    const oversized = await route.handler._handler(
+      { runAction: async () => ({ accepted: true }) },
+      new Request("https://example.com/wearables/webhooks/polar", {
+        method: "POST",
+        headers: { "content-length": "11" },
+        body: "{}",
+      }),
+    );
+    const rejected = await route.handler._handler(
+      {
+        runAction: async () => ({
+          accepted: false,
+          duplicate: false,
+          ping: false,
+          statusCode: 403,
+          errorCode: "invalid_signature",
+        }),
+      },
+      new Request("https://example.com/wearables/webhooks/polar", {
+        method: "POST",
+        body: "{}",
+      }),
+    );
+
+    expect(oversized.status).toBe(413);
+    expect(rejected.status).toBe(403);
+    expect(await rejected.json()).toEqual({ error: "invalid_signature" });
+  });
+
   it("registers the v2 SDK route and forwards a validated envelope", async () => {
     const routes: Array<{
       handler: { _handler: (ctx: unknown, request: Request) => Promise<Response> };

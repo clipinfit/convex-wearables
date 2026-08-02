@@ -77,6 +77,31 @@ export const providerDeregistrationStatus = v.union(
   v.literal("failed"),
 );
 
+export const liveWebhookProvider = v.union(
+  v.literal("polar"),
+  v.literal("whoop"),
+  v.literal("suunto"),
+);
+
+export const providerWebhookReceiptStatus = v.union(
+  v.literal("pending"),
+  v.literal("processing"),
+  v.literal("waiting_for_connection"),
+  v.literal("completed"),
+  v.literal("ignored"),
+  v.literal("failed"),
+  v.literal("canceled"),
+);
+
+export const providerWebhookRegistrationStatus = v.union(
+  v.literal("unconfigured"),
+  v.literal("pending_verification"),
+  v.literal("active"),
+  v.literal("paused"),
+  v.literal("deactivated"),
+  v.literal("error"),
+);
+
 /**
  * Supported rollup aggregations.
  */
@@ -111,6 +136,7 @@ export default defineSchema({
     .index("by_user", ["userId"])
     .index("by_user_provider", ["userId", "provider"])
     .index("by_provider_user", ["provider", "providerUserId"])
+    .index("by_provider_username", ["provider", "providerUsername"])
     .index("by_status", ["status"]),
 
   // -------------------------------------------------------------------------
@@ -406,6 +432,51 @@ export default defineSchema({
     updatedAt: v.optional(v.number()),
   }).index("by_provider", ["provider"]),
 
+  // Durable, bounded inbox for opt-in Polar, WHOOP, and Suunto callbacks.
+  providerWebhookReceipts: defineTable({
+    provider: liveWebhookProvider,
+    idempotencyKey: v.string(),
+    eventType: v.string(),
+    providerUserId: v.optional(v.string()),
+    providerUsername: v.optional(v.string()),
+    resourceId: v.optional(v.string()),
+    providerTraceId: v.optional(v.string()),
+    payloadJson: v.string(),
+    payloadDigest: v.string(),
+    receivedAt: v.number(),
+    expiresAt: v.number(),
+    status: providerWebhookReceiptStatus,
+    attempt: v.number(),
+    connectionId: v.optional(v.id("connections")),
+    workflowId: v.optional(v.string()),
+    completedAt: v.optional(v.number()),
+    resultCode: v.optional(v.string()),
+    errorCode: v.optional(v.string()),
+  })
+    .index("by_provider_idempotency", ["provider", "idempotencyKey"])
+    .index("by_status_received", ["status", "receivedAt"])
+    .index("by_provider_status_received", ["provider", "status", "receivedAt"])
+    .index("by_provider_received", ["provider", "receivedAt"])
+    .index("by_received", ["receivedAt"])
+    .index("by_expiry", ["expiresAt"])
+    .index("by_connection_status", ["connectionId", "status"]),
+
+  // One application-level registration record per live provider.
+  providerWebhookRegistrations: defineTable({
+    provider: liveWebhookProvider,
+    status: providerWebhookRegistrationStatus,
+    targetUrl: v.optional(v.string()),
+    remoteId: v.optional(v.string()),
+    modelVersion: v.optional(v.literal("v2")),
+    eventTypes: v.optional(v.array(v.string())),
+    webhookSecret: v.optional(v.string()),
+    configuredAt: v.optional(v.number()),
+    lastVerifiedAt: v.optional(v.number()),
+    lastReconciledAt: v.optional(v.number()),
+    lastErrorCode: v.optional(v.string()),
+    updatedAt: v.number(),
+  }).index("by_provider", ["provider"]),
+
   // -------------------------------------------------------------------------
   // Pending Garmin Push Payloads — short-lived replay queue for OAuth reconnect
   // races where Garmin pushes data before the connection is active again.
@@ -605,6 +676,7 @@ export default defineSchema({
       backfillJobs: v.number(),
       oauthStates: v.number(),
       pendingGarminPushPayloads: v.number(),
+      providerWebhookReceipts: v.optional(v.number()),
       timeSeriesPolicyAssignments: v.number(),
       priorDataDeletionOperations: v.number(),
     }),
