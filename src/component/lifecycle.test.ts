@@ -19,6 +19,9 @@ const deletionPhases = [
   "dataPoints",
   "timeSeriesRollups",
   "timeSeriesSeriesState",
+  "workoutSegments",
+  "workoutZones",
+  "garminActivityFileJobs",
   "events",
   "dailySummaries",
   "menstrualCycles",
@@ -105,11 +108,40 @@ describe("provider lifecycle and durable deletion", () => {
         recordedAt: 1_710_000_000_000,
         value: 72,
       });
-      await ctx.db.insert("events", {
+      const garminEventId = await ctx.db.insert("events", {
         dataSourceId: garminSourceId,
         userId: "user-1",
         category: "workout",
         startDatetime: 1_710_000_000_000,
+      });
+      await ctx.db.insert("workoutSegments", {
+        eventId: garminEventId,
+        userId: "user-1",
+        provider: "garmin",
+        kind: "lap",
+        index: 0,
+        schemaVersion: 1,
+      });
+      await ctx.db.insert("workoutZones", {
+        eventId: garminEventId,
+        userId: "user-1",
+        provider: "garmin",
+        kind: "heart_rate",
+        zone: 0,
+        seconds: 60,
+        schemaVersion: 1,
+      });
+      await ctx.db.insert("garminActivityFileJobs", {
+        connectionId: garminConnectionId,
+        dataSourceId: garminSourceId,
+        eventExternalId: "garmin-1",
+        activityId: "1",
+        fileType: "FIT",
+        status: "completed",
+        attempts: 1,
+        receivedAt: 1,
+        expiresAt: 2,
+        parserVersion: "test",
       });
       await ctx.db.insert("events", {
         dataSourceId: stravaSourceId,
@@ -147,6 +179,9 @@ describe("provider lifecycle and durable deletion", () => {
     });
     expect(operation.status).toBe("completed");
     expect(operation.deletedCounts.dataPoints).toBe(450);
+    expect(operation.deletedCounts.workoutSegments).toBe(1);
+    expect(operation.deletedCounts.workoutZones).toBe(1);
+    expect(operation.deletedCounts.garminActivityFileJobs).toBe(1);
 
     await t.run(async (ctx) => {
       expect(await ctx.db.get(garminSourceId)).toBeNull();

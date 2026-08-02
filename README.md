@@ -235,6 +235,8 @@ const wearables = new WearablesClient(components.wearables, config);
 |--------|-------------|
 | `getEvents(ctx, { userId, category, startDate?, endDate?, limit?, cursor? })` | Paginated events query |
 | `getEvent(ctx, { eventId })` | Get a single event by ID |
+| `getWorkoutEnrichment(ctx, { eventId })` | Get normalized laps, splits, lengths, sets, and zones |
+| `upsertWorkoutEnrichment(ctx, input)` | Replace normalized enrichment from a custom parser/provider |
 
 The `category` parameter is `"workout"` or `"sleep"`. Results are ordered by start time (newest first). Pagination uses cursor-based tokens returned in `nextCursor`.
 
@@ -699,9 +701,12 @@ export const getStoragePolicies = query({
 |-------|-------------|-------------|
 | `connections` | OAuth tokens + provider link per user | `by_user`, `by_user_provider`, `by_status` |
 | `dataSources` | User + provider + device combinations | `by_user_provider`, `by_user_provider_device`, `by_connection` |
-| `dataPoints` | Time-series health metrics | `by_source_type_time`, `by_type_time` |
+| `dataPoints` | Time-series health metrics | `by_source_type_time`, `by_source_time`, `by_type_time` |
 | `timeSeriesRollups` | Bucketed historical time-series rollups | `by_source_type_bucket`, `by_source_type_bucket_size`, `by_source_bucket`, `by_type_bucket` |
 | `events` | Workouts and sleep sessions | `by_user_category_time`, `by_external_id`, `by_source_start_end` |
+| `workoutSegments` | Normalized laps, splits, lengths, and strength sets | `by_event_kind_index`, `by_user_provider` |
+| `workoutZones` | Normalized heart-rate and power time-in-zone | `by_event_kind_zone`, `by_user_provider` |
+| `garminActivityFileJobs` | Ephemeral Garmin FIT processing inbox | `by_connection_status`, `by_activity`, `by_event_external_id`, `by_expiry` |
 | `dailySummaries` | Provider-aware daily aggregates | `by_user_provider_category_date`, `by_user_provider_date`, `by_user_category_date`, `by_user_date` |
 | `syncJobs` | Sync workflow tracking | `by_user`, `by_user_provider`, `by_user_status`, `by_status` |
 | `oauthStates` | Temporary OAuth PKCE state | `by_state` |
@@ -844,6 +849,11 @@ registerRoutes(http, components.wearables, {
     successRedirectUrl: process.env.NEXT_PUBLIC_APP_URL,
     webhookPath: "/webhooks/garmin/push",
     healthPath: "/webhooks/garmin/health",
+    activityFiles: {
+      enabled: true,
+      // Optional; defaults to 20 MiB and Garmin API hosts only.
+      maxBytes: 20 * 1024 * 1024,
+    },
   },
 });
 
@@ -857,6 +867,20 @@ The Garmin route helper:
 - logs payload summaries and processing errors
 - forwards the payload to `components.wearables.garminWebhooks.processPushPayload`
 - exposes an optional health-check route
+- optionally queues Garmin FIT Activity Files for asynchronous workout enrichment
+
+Activity File processing is disabled by default. When enabled, callback URLs
+must use HTTPS and an allowed Garmin host, redirects are rejected, downloads
+are size- and time-bounded, and callback URLs are scrubbed after use or expiry.
+Raw FIT bytes are parsed in memory and are never retained. Summary workouts
+remain available even if enrichment fails.
+
+Garmin `activityDetails` samples are always normalized into the existing
+time-series store. FIT samples for a series already present in
+`activityDetails` are skipped to avoid same-workout duplication. Read deep
+detail with `wearables.getWorkoutEnrichment(ctx, { eventId })`; read samples
+with the normal `getTimeSeries` API and configure their lifecycle through the
+existing time-series storage policies.
 
 If you customize `oauthCallbackPath`, the redirect URI used when calling
 `oauthActions.generateAuthUrl` must match that same callback path.

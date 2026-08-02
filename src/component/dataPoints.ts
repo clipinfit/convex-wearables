@@ -5,6 +5,7 @@ import {
   type DatabaseReader,
   type DatabaseWriter,
   internalMutation,
+  internalQuery,
   type MutationCtx,
   mutation,
   query,
@@ -144,6 +145,31 @@ const timeSeriesPointValidator = v.object({
   max: v.optional(v.number()),
   last: v.optional(v.number()),
   count: v.optional(v.number()),
+});
+
+export const getExistingDetailSeries = internalQuery({
+  args: {
+    dataSourceId: v.id("dataSources"),
+    startDate: v.number(),
+    endDate: v.number(),
+  },
+  returns: v.array(v.string()),
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("dataPoints")
+      .withIndex("by_source_time", (index) =>
+        index
+          .eq("dataSourceId", args.dataSourceId)
+          .gte("recordedAt", args.startDate)
+          .lte("recordedAt", args.endDate),
+      )
+      .collect();
+    return [
+      ...new Set(
+        rows.filter((row) => row.externalId?.includes(":detail:")).map((row) => row.seriesType),
+      ),
+    ];
+  },
 });
 
 // ---------------------------------------------------------------------------

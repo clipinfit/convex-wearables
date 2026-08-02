@@ -19,6 +19,7 @@ import { assertIngestionAllowed } from "./lifecycle";
 import {
   type GarminPushPayload,
   normalizeActivity,
+  normalizeActivitySamples,
   normalizeBloodPressureDataPoints,
   normalizeBodyCompositionDataPoints,
   normalizeBodyCompositionSummary,
@@ -64,16 +65,29 @@ export const processPushPayload = action({
     payload: v.optional(v.any()),
     payloadJson: v.optional(v.string()),
     garminClientId: v.string(),
+    activityFilesEnabled: v.optional(v.boolean()),
+    activityFileAllowedHosts: v.optional(v.array(v.string())),
+    activityFileMaxBytes: v.optional(v.number()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
     const payload = decodePushPayload(args);
     const signalBuckets = new Map<string, Set<string>>();
 
-    await queuePendingPayloadForInactiveConnections(ctx, payload, args.garminClientId);
+    await queuePendingPayloadForInactiveConnections(ctx, payload, args.garminClientId, {
+      enabled: args.activityFilesEnabled,
+      allowedHosts: args.activityFileAllowedHosts,
+      maxBytes: args.activityFileMaxBytes,
+    });
 
     await processActivityEntries(ctx, payload.activities, "activities", signalBuckets);
     await processActivityEntries(ctx, payload.activityDetails, "activityDetails", signalBuckets);
+    if (args.activityFilesEnabled) {
+      await processActivityFiles(ctx, payload.activityFiles, {
+        allowedHosts: args.activityFileAllowedHosts,
+        maxBytes: args.activityFileMaxBytes,
+      });
+    }
 
     if (payload.sleeps?.length) {
       for (const sleep of payload.sleeps) {
@@ -494,6 +508,9 @@ export const replayPendingForConnection = internalAction({
         await ctx.runAction(api.garminWebhooks.processPushPayload, {
           garminClientId: pending.garminClientId,
           payloadJson: pending.payloadJson,
+          activityFilesEnabled: pending.activityFilesEnabled,
+          activityFileAllowedHosts: pending.activityFileAllowedHosts,
+          activityFileMaxBytes: pending.activityFileMaxBytes,
         });
         await ctx.runMutation(internal.garminWebhooks.markPendingReplayed, {
           pendingId: pending._id,
@@ -540,6 +557,9 @@ export const storePendingPayload = internalMutation({
     payloadJson: v.string(),
     receivedAt: v.number(),
     expiresAt: v.number(),
+    activityFilesEnabled: v.optional(v.boolean()),
+    activityFileAllowedHosts: v.optional(v.array(v.string())),
+    activityFileMaxBytes: v.optional(v.number()),
   },
   returns: v.id("pendingGarminPushPayloads"),
   handler: async (ctx, args) => {
@@ -664,7 +684,41 @@ async function processActivityEntries(
       movingTimeSeconds: event.movingTimeSeconds,
     });
 
+    if (dataType === "activityDetails") {
+      await storeNormalizedDataPoints(ctx, dataSourceId, normalizeActivitySamples(activity));
+    }
+
     addSignal(signalBuckets, dataType, connection._id);
+  }
+}
+
+async function processActivityFiles(
+  ctx: Pick<ActionCtx, "runQuery" | "runMutation" | "scheduler">,
+  files: GarminPushPayload["activityFiles"],
+  config: { allowedHosts?: string[]; maxBytes?: number },
+) {
+  for (const file of files ?? []) {
+    if (!file.callbackURL || !file.activityId) continue;
+    const connection = await resolveConnection(ctx, file.userId);
+    if (!connection) continue;
+    const dataSourceId = await resolveDataSource(ctx, connection);
+    if (!dataSourceId) continue;
+    const jobId = await ctx.runMutation(internal.garminActivityFileJobs.enqueue, {
+      connectionId: connection._id,
+      dataSourceId,
+      userId: connection.userId,
+      activityId: String(file.activityId),
+      callbackUrl: file.callbackURL,
+      fileType: file.fileType ?? "",
+      receivedAt: Date.now(),
+    });
+    if ((file.fileType ?? "").toUpperCase() === "FIT") {
+      await ctx.scheduler.runAfter(0, internal.garminActivityFiles.processActivityFile, {
+        jobId,
+        allowedHosts: config.allowedHosts,
+        maxBytes: config.maxBytes,
+      });
+    }
   }
 }
 
@@ -753,6 +807,8 @@ function getPayloadItemCount(payload: GarminPushPayload, dataType: string): numb
       return payload.activities?.length;
     case "activityDetails":
       return payload.activityDetails?.length;
+    case "activityFiles":
+      return payload.activityFiles?.length;
     case "sleeps":
       return payload.sleeps?.length;
     case "dailies":
@@ -826,6 +882,7 @@ function collectGarminUserIds(payload: GarminPushPayload): string[] {
 
   for (const entry of payload.activities ?? []) maybeAdd(entry);
   for (const entry of payload.activityDetails ?? []) maybeAdd(entry);
+  for (const entry of payload.activityFiles ?? []) maybeAdd(entry);
   for (const entry of payload.sleeps ?? []) maybeAdd(entry);
   for (const entry of payload.dailies ?? []) maybeAdd(entry);
   for (const entry of payload.epochs ?? []) maybeAdd(entry);
@@ -857,6 +914,7 @@ function filterGarminPayloadByUserId(
   return {
     activities: filterEntries(payload.activities),
     activityDetails: filterEntries(payload.activityDetails),
+    activityFiles: filterEntries(payload.activityFiles),
     sleeps: filterEntries(payload.sleeps),
     dailies: filterEntries(payload.dailies),
     epochs: filterEntries(payload.epochs),
@@ -881,6 +939,7 @@ async function queuePendingPayloadForInactiveConnections(
   ctx: Pick<ActionCtx, "runMutation" | "runQuery">,
   payload: GarminPushPayload,
   garminClientId: string,
+  activityFiles: { enabled?: boolean; allowedHosts?: string[]; maxBytes?: number },
 ) {
   const userIds = collectGarminUserIds(payload);
   if (userIds.length === 0) {
@@ -909,6 +968,9 @@ async function queuePendingPayloadForInactiveConnections(
       payloadJson,
       receivedAt,
       expiresAt: receivedAt + PENDING_GARMIN_PUSH_TTL_MS,
+      activityFilesEnabled: activityFiles.enabled,
+      activityFileAllowedHosts: activityFiles.allowedHosts,
+      activityFileMaxBytes: activityFiles.maxBytes,
     });
   }
 }

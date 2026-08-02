@@ -141,6 +141,7 @@ export default defineSchema({
     externalId: v.optional(v.string()),
   })
     .index("by_source_type_time", ["dataSourceId", "seriesType", "recordedAt"])
+    .index("by_source_time", ["dataSourceId", "recordedAt"])
     .index("by_type_time", ["seriesType", "recordedAt"]),
 
   // -------------------------------------------------------------------------
@@ -218,6 +219,77 @@ export default defineSchema({
     .index("by_source_category_time", ["dataSourceId", "category", "startDatetime"])
     .index("by_source_start_end", ["dataSourceId", "startDatetime", "endDatetime"])
     .index("by_external_id", ["externalId"]),
+
+  // Provider-neutral detail attached to a summary workout event.
+  workoutSegments: defineTable({
+    eventId: v.id("events"),
+    userId: v.string(),
+    provider: providerName,
+    kind: v.union(v.literal("lap"), v.literal("split"), v.literal("length"), v.literal("set")),
+    index: v.number(),
+    startDatetime: v.optional(v.number()),
+    elapsedSeconds: v.optional(v.number()),
+    timerSeconds: v.optional(v.number()),
+    distanceMeters: v.optional(v.number()),
+    averageHeartRate: v.optional(v.number()),
+    maxHeartRate: v.optional(v.number()),
+    averageSpeed: v.optional(v.number()),
+    maxSpeed: v.optional(v.number()),
+    averagePower: v.optional(v.number()),
+    maxPower: v.optional(v.number()),
+    averageCadence: v.optional(v.number()),
+    strokes: v.optional(v.number()),
+    exercise: v.optional(v.string()),
+    repetitions: v.optional(v.number()),
+    weight: v.optional(v.number()),
+    weightUnit: v.optional(v.string()),
+    setType: v.optional(v.string()),
+    schemaVersion: v.number(),
+  })
+    .index("by_event_kind_index", ["eventId", "kind", "index"])
+    .index("by_user_provider", ["userId", "provider"]),
+
+  workoutZones: defineTable({
+    eventId: v.id("events"),
+    userId: v.string(),
+    provider: providerName,
+    kind: v.union(v.literal("heart_rate"), v.literal("power")),
+    zone: v.number(),
+    lowerBound: v.optional(v.number()),
+    upperBound: v.optional(v.number()),
+    seconds: v.number(),
+    schemaVersion: v.number(),
+  })
+    .index("by_event_kind_zone", ["eventId", "kind", "zone"])
+    .index("by_user_provider", ["userId", "provider"]),
+
+  // Ephemeral inbox for one-time Garmin Activity File callback URLs.
+  garminActivityFileJobs: defineTable({
+    connectionId: v.id("connections"),
+    dataSourceId: v.id("dataSources"),
+    eventExternalId: v.string(),
+    activityId: v.string(),
+    callbackUrl: v.optional(v.string()),
+    fileType: v.string(),
+    status: v.union(
+      v.literal("queued"),
+      v.literal("processing"),
+      v.literal("completed"),
+      v.literal("failed"),
+      v.literal("expired"),
+      v.literal("skipped"),
+    ),
+    attempts: v.number(),
+    receivedAt: v.number(),
+    expiresAt: v.number(),
+    completedAt: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+    parserVersion: v.string(),
+  })
+    .index("by_connection_status", ["connectionId", "status"])
+    .index("by_activity", ["connectionId", "activityId"])
+    .index("by_event_external_id", ["eventExternalId"])
+    .index("by_expiry", ["expiresAt"]),
 
   // -------------------------------------------------------------------------
   // Daily Summaries — precomputed daily aggregates
@@ -344,6 +416,9 @@ export default defineSchema({
     providerUserId: v.string(),
     garminClientId: v.string(),
     payloadJson: v.string(),
+    activityFilesEnabled: v.optional(v.boolean()),
+    activityFileAllowedHosts: v.optional(v.array(v.string())),
+    activityFileMaxBytes: v.optional(v.number()),
     receivedAt: v.number(),
     expiresAt: v.number(),
     replayedAt: v.optional(v.number()),
@@ -521,6 +596,9 @@ export default defineSchema({
       timeSeriesRollups: v.number(),
       timeSeriesSeriesState: v.number(),
       events: v.number(),
+      workoutSegments: v.optional(v.number()),
+      workoutZones: v.optional(v.number()),
+      garminActivityFileJobs: v.optional(v.number()),
       dailySummaries: v.number(),
       menstrualCycles: v.number(),
       syncJobs: v.number(),

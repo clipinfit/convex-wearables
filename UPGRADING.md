@@ -25,6 +25,37 @@ Use the package version to signal upgrade risk:
 In practice, yes: changes like new optional fields or new tables should usually
 be `minor`, not `major`.
 
+## Version 0.10.0: workout enrichment and Garmin FIT files
+
+This is a backwards-compatible minor release. It adds `workoutSegments`,
+`workoutZones`, and `garminActivityFileJobs`, plus a `by_source_time` index on
+`dataPoints`. Existing events and time-series rows remain valid; consumers do
+not run a data migration.
+
+After updating the package, deploy the Convex backend so the additive component
+schema and functions are installed. Existing workout reads continue unchanged,
+and older workouts return empty enrichment arrays.
+
+Garmin Activity File processing is opt-in:
+
+```ts
+registerRoutes(http, components.wearables, {
+  garmin: {
+    activityFiles: { enabled: true },
+  },
+});
+```
+
+Before enabling it, activate Activity Files for the Garmin application and
+confirm the callback hostname. If Garmin uses a host outside the built-in
+`apis.garmin.com` and `connectapi.garmin.com` allowlist, add that exact hostname
+through `allowedHosts`. Do not use wildcards. Raw FIT bytes are not retained.
+
+No historical enrichment is automatic. Existing workouts remain summary-only
+until Garmin delivers a new Activity File notification or the consumer
+explicitly requests a supported Garmin backfill. Time-series rows derived from
+`activityDetails` and FIT follow the consumer's existing storage policy.
+
 ## Synthetic provider
 
 The proposed release after `0.4.0` is `0.5.0`. It adds `"synthetic"` to

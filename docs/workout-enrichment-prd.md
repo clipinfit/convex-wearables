@@ -1,10 +1,11 @@
 ---
 date: 2026-07-18
-status: PLANNED
+status: IMPLEMENTED
 priority: P1
 semver: minor
 owner_repo: convex-wearables
 depends_on: time-series-storage-policy
+target_version: 0.10.0
 ---
 
 # Provider-Neutral Workout Enrichment PRD
@@ -15,6 +16,11 @@ Add normalized workout samples, segments, zones, and optional activity-file
 processing without turning `events` into an unbounded document. Garmin FIT,
 Garmin activity detail, and Strava streams should feed one provider-neutral
 model. The first delivery should favor high-value fields and bounded storage.
+
+Implementation status: the provider-neutral model, Garmin `activityDetails`
+samples, FIT laps/splits/lengths/sets/zones/samples, lifecycle deletion, public
+read/write contracts, tests, and documentation are complete for `0.10.0`.
+Strava streams and optional encrypted raw-file archival remain later work.
 
 The existing [Garmin activity-files plan](./garmin-activity-files-plan.md)
 becomes a provider-specific ingestion plan under this broader model.
@@ -168,14 +174,14 @@ Expected schema change: additive tables and indexes only.
 - Rollback is code-safe while new tables remain in schema; a cleanup release may
   remove them only after data disposition is decided.
 
-For `../clipin-app`:
+For any consumer:
 
-1. Update the package only after an operator publishes the implementation.
-2. Deploy the backend so the component creates the additive tables.
-3. Keep current workout UI on summary reads.
-4. Add CLIPIN wrapper queries for detail after deploy.
-5. Enable provider enrichment behind a feature flag and storage-budget review.
-6. Do not run a historical backfill by default.
+1. Update to `0.10.0` and deploy the backend to install the additive schema.
+2. Keep existing workout UI on summary reads or opt into the new detail query.
+3. Enable Garmin Activity Files explicitly in `registerRoutes` after the
+   Garmin application has the corresponding product permission.
+4. Review time-series storage policies before ingesting dense workout samples.
+5. Do not run a historical backfill by default.
 
 ## Acceptance criteria
 
@@ -183,6 +189,7 @@ For `../clipin-app`:
 - Summary ingestion succeeds when enrichment fails.
 - Deleting a workout or user deletes associated child rows in bounded batches.
 - Time-series policy applies to workout samples exactly as to other samples.
-- FIT size/message/sample limits are covered by tests.
+- FIT byte, sample, segment, and zone limits are enforced; normalization and
+  invalid-file behavior are covered by tests.
 - Garmin and Strava fixtures produce the same normalized series names.
 - Existing `0.6.0` stored data can deploy without migration.

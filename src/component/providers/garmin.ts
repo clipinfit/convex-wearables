@@ -77,6 +77,29 @@ export interface GarminActivity extends GarminActivitySummaryData {
   userId: string;
   activityId: number | string;
   summary?: GarminActivitySummaryData;
+  samples?: GarminActivitySample[];
+}
+
+export interface GarminActivitySample {
+  startTimeInSeconds?: number | string;
+  heartRate?: number;
+  speedMetersPerSecond?: number;
+  stepsPerMinute?: number;
+  powerInWatts?: number;
+  elevationInMeters?: number;
+  latitudeInDegree?: number;
+  longitudeInDegree?: number;
+  airTemperatureCelcius?: number;
+}
+
+export interface GarminActivityFile {
+  userId: string;
+  activityId: number | string;
+  summaryId?: string;
+  fileType?: string;
+  callbackURL?: string;
+  manual?: boolean;
+  startTimeInSeconds?: number | string;
 }
 
 export interface GarminSleep {
@@ -255,6 +278,7 @@ export interface GarminMCTSummary {
 export interface GarminPushPayload {
   activities?: GarminActivity[];
   activityDetails?: GarminActivity[];
+  activityFiles?: GarminActivityFile[];
   sleeps?: GarminSleep[];
   dailies?: GarminDaily[];
   epochs?: GarminEpoch[];
@@ -492,6 +516,41 @@ export function normalizeActivity(activity: GarminActivity): NormalizedEvent | n
     totalElevationGain: summary.totalElevationGainInMeters,
     movingTimeSeconds: summary.movingDurationInSeconds,
   };
+}
+
+const GARMIN_ACTIVITY_SAMPLE_FIELDS = {
+  heartRate: "heart_rate",
+  speedMetersPerSecond: "speed",
+  stepsPerMinute: "cadence",
+  powerInWatts: "power",
+  elevationInMeters: "elevation",
+  latitudeInDegree: "latitude",
+  longitudeInDegree: "longitude",
+  airTemperatureCelcius: "air_temperature",
+} as const;
+
+/** Normalize Garmin activityDetails samples without exposing Garmin field names. */
+export function normalizeActivitySamples(activity: GarminActivity): NormalizedDataPoint[] {
+  const activityId = String(activity.activityId);
+  const points: NormalizedDataPoint[] = [];
+
+  for (const [sampleIndex, sample] of (activity.samples ?? []).entries()) {
+    const recordedAt = parseGarminTimestampMs(sample.startTimeInSeconds);
+    if (recordedAt == null) continue;
+
+    for (const [field, seriesType] of Object.entries(GARMIN_ACTIVITY_SAMPLE_FIELDS)) {
+      const value = coerceFiniteNumber(sample[field as keyof GarminActivitySample]);
+      if (value == null) continue;
+      points.push({
+        seriesType,
+        recordedAt,
+        value,
+        externalId: `garmin-${activityId}:detail:${sampleIndex}:${seriesType}`,
+      });
+    }
+  }
+
+  return points;
 }
 
 // ---------------------------------------------------------------------------

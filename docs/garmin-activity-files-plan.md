@@ -1,10 +1,18 @@
 ---
 date: 2026-03-22
-status: NOT_IMPLEMENTED
+status: IMPLEMENTED
 semver: minor
+target_version: 0.10.0
 ---
 
 # Garmin Activity Files Support Plan for `convex-wearables`
+
+> Implemented scope: opt-in asynchronous FIT downloads, ephemeral callback URL
+> jobs, normalized laps/splits/swim lengths/strength sets/zones, and
+> non-duplicating FIT samples. Raw FIT archival remains intentionally deferred.
+> Where this older provider plan differs from the provider-neutral PRD, the
+> [Provider-Neutral Workout Enrichment PRD](./workout-enrichment-prd.md) and the
+> shipped API are authoritative.
 
 ## Summary
 - This provider-specific plan is a child of the normalized data model and

@@ -75,6 +75,11 @@ import type {
   TimeSeriesPolicyRuleInput,
   UserTimeSeriesPolicyPreset,
   WearablesConfig,
+  WorkoutEnrichment,
+  WorkoutSegment,
+  WorkoutSegmentInput,
+  WorkoutZone,
+  WorkoutZoneInput,
 } from "./types.js";
 
 export {
@@ -152,6 +157,11 @@ export type {
   TimeSeriesPolicyRuleInput,
   UserTimeSeriesPolicyPreset,
   WearablesConfig,
+  WorkoutEnrichment,
+  WorkoutSegment,
+  WorkoutSegmentInput,
+  WorkoutZone,
+  WorkoutZoneInput,
 };
 
 // ---------------------------------------------------------------------------
@@ -310,6 +320,28 @@ export class WearablesClient {
     return await ctx.runQuery(this.component.events.getEvent, {
       eventId: args.eventId,
     });
+  }
+
+  /** Get provider-neutral laps, splits, lengths, sets, and zones for a workout. */
+  async getWorkoutEnrichment(
+    ctx: QueryRunner,
+    args: { eventId: string },
+  ): Promise<WorkoutEnrichment> {
+    return await ctx.runQuery(this.component.workoutEnrichment.getWorkoutEnrichment, args);
+  }
+
+  /** Replace normalized enrichment for a workout, for custom/provider parsers. */
+  async upsertWorkoutEnrichment(
+    ctx: MutationRunner,
+    args: {
+      eventId: string;
+      userId: string;
+      provider: ProviderName;
+      segments: WorkoutSegmentInput[];
+      zones: WorkoutZoneInput[];
+    },
+  ): Promise<{ segments: number; zones: number }> {
+    return await ctx.runMutation(this.component.workoutEnrichment.upsertWorkoutEnrichment, args);
   }
 
   // -----------------------------------------------------------------------
@@ -866,6 +898,9 @@ export function registerRoutes(
             {
               payloadJson: JSON.stringify(payload),
               garminClientId: garminClientId ?? "",
+              activityFilesEnabled: garminConfig?.activityFiles?.enabled,
+              activityFileAllowedHosts: garminConfig?.activityFiles?.allowedHosts,
+              activityFileMaxBytes: garminConfig?.activityFiles?.maxBytes,
             },
           );
 
@@ -1138,6 +1173,7 @@ function summarizeGarminPayload(payload: unknown) {
     keys: Object.keys(payload).sort(),
     activities: getArrayLength(payload.activities),
     activityDetails: getArrayLength(payload.activityDetails),
+    activityFiles: getArrayLength(payload.activityFiles),
     sleeps: getArrayLength(payload.sleeps),
     dailies: getArrayLength(payload.dailies),
     epochs: getArrayLength(payload.epochs),

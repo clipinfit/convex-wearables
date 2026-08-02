@@ -274,6 +274,20 @@ export const deleteByExternalId = internalMutation({
       .first();
 
     if (event) {
+      const segments = await ctx.db
+        .query("workoutSegments")
+        .withIndex("by_event_kind_index", (index) => index.eq("eventId", event._id))
+        .collect();
+      const zones = await ctx.db
+        .query("workoutZones")
+        .withIndex("by_event_kind_zone", (index) => index.eq("eventId", event._id))
+        .collect();
+      for (const row of [...segments, ...zones]) await ctx.db.delete(row._id);
+      const fileJobs = await ctx.db
+        .query("garminActivityFileJobs")
+        .withIndex("by_event_external_id", (index) => index.eq("eventExternalId", args.externalId))
+        .collect();
+      for (const job of fileJobs) await ctx.db.delete(job._id);
       await ctx.db.delete(event._id);
     }
   },
@@ -290,6 +304,15 @@ export const deleteUserEvents = internalMutation({
       .withIndex("by_user_category_time", (idx) => idx.eq("userId", args.userId))
       .collect();
     for (const event of events) {
+      const segments = await ctx.db
+        .query("workoutSegments")
+        .withIndex("by_event_kind_index", (index) => index.eq("eventId", event._id))
+        .collect();
+      const zones = await ctx.db
+        .query("workoutZones")
+        .withIndex("by_event_kind_zone", (index) => index.eq("eventId", event._id))
+        .collect();
+      for (const row of [...segments, ...zones]) await ctx.db.delete(row._id);
       await ctx.db.delete(event._id);
     }
   },

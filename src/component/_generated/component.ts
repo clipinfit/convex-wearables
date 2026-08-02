@@ -18,6 +18,8 @@ type Modules = {
   dataSources: typeof import("../dataSources.js");
   events: typeof import("../events.js");
   garminBackfill: typeof import("../garminBackfill.js");
+  garminActivityFiles: typeof import("../garminActivityFiles.js");
+  garminActivityFileJobs: typeof import("../garminActivityFileJobs.js");
   garminWebhooks: typeof import("../garminWebhooks.js");
   lifecycle: typeof import("../lifecycle.js");
   menstrualCycles: typeof import("../menstrualCycles.js");
@@ -27,6 +29,7 @@ type Modules = {
   synthetic: typeof import("../synthetic.js");
   syncJobs: typeof import("../syncJobs.js");
   syncWorkflow: typeof import("../syncWorkflow.js");
+  workoutEnrichment: typeof import("../workoutEnrichment.js");
 };
 
 type PublicApi = FilterApi<

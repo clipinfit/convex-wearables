@@ -54,6 +54,9 @@ export interface DataDeletionCounts {
   timeSeriesRollups: number;
   timeSeriesSeriesState: number;
   events: number;
+  workoutSegments?: number;
+  workoutZones?: number;
+  garminActivityFileJobs?: number;
   dailySummaries: number;
   menstrualCycles: number;
   syncJobs: number;
@@ -205,7 +208,71 @@ export interface GarminRoutesConfig {
   successRedirectUrl?: string;
   /** Query parameter set on successful OAuth redirect. */
   successQueryParam?: string;
+  /** Opt in to asynchronous Garmin FIT Activity File enrichment. */
+  activityFiles?: {
+    /** Defaults to false. */
+    enabled: boolean;
+    /** HTTPS callback hosts. Defaults to Garmin's API hosts. */
+    allowedHosts?: string[];
+    /** Maximum download size in bytes, capped at 20 MiB. */
+    maxBytes?: number;
+  };
 }
+
+export interface WorkoutSegment {
+  _id: string;
+  eventId: string;
+  userId: string;
+  provider: ProviderName;
+  kind: "lap" | "split" | "length" | "set";
+  index: number;
+  startDatetime?: number;
+  elapsedSeconds?: number;
+  timerSeconds?: number;
+  distanceMeters?: number;
+  averageHeartRate?: number;
+  maxHeartRate?: number;
+  averageSpeed?: number;
+  maxSpeed?: number;
+  averagePower?: number;
+  maxPower?: number;
+  averageCadence?: number;
+  strokes?: number;
+  exercise?: string;
+  repetitions?: number;
+  weight?: number;
+  weightUnit?: string;
+  setType?: string;
+  schemaVersion: number;
+}
+
+export interface WorkoutZone {
+  _id: string;
+  eventId: string;
+  userId: string;
+  provider: ProviderName;
+  kind: "heart_rate" | "power";
+  zone: number;
+  lowerBound?: number;
+  upperBound?: number;
+  seconds: number;
+  schemaVersion: number;
+}
+
+export interface WorkoutEnrichment {
+  event: HealthEvent | null;
+  segments: WorkoutSegment[];
+  zones: WorkoutZone[];
+}
+
+export type WorkoutSegmentInput = Omit<
+  WorkoutSegment,
+  "_id" | "eventId" | "userId" | "provider" | "schemaVersion"
+>;
+export type WorkoutZoneInput = Omit<
+  WorkoutZone,
+  "_id" | "eventId" | "userId" | "provider" | "schemaVersion"
+>;
 
 export interface SdkRoutesConfig {
   /** Route that receives normalized SDK/mobile health pushes. */

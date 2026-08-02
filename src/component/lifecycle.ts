@@ -31,6 +31,9 @@ const deletedCountsValidator = v.object({
   timeSeriesRollups: v.number(),
   timeSeriesSeriesState: v.number(),
   events: v.number(),
+  workoutSegments: v.number(),
+  workoutZones: v.number(),
+  garminActivityFileJobs: v.number(),
   dailySummaries: v.number(),
   menstrualCycles: v.number(),
   syncJobs: v.number(),
@@ -49,6 +52,9 @@ const DELETION_PHASES: readonly DeletionPhase[] = [
   "dataPoints",
   "timeSeriesRollups",
   "timeSeriesSeriesState",
+  "workoutSegments",
+  "workoutZones",
+  "garminActivityFileJobs",
   "events",
   "dailySummaries",
   "menstrualCycles",
@@ -69,6 +75,9 @@ function emptyDeletedCounts(): DeletedCounts {
     timeSeriesRollups: 0,
     timeSeriesSeriesState: 0,
     events: 0,
+    workoutSegments: 0,
+    workoutZones: 0,
+    garminActivityFileJobs: 0,
     dailySummaries: 0,
     menstrualCycles: 0,
     syncJobs: 0,
@@ -533,6 +542,35 @@ async function deleteScopedBatchHandler(
     args.phase === "events"
   ) {
     deleted = await deleteSourceChildren(ctx, sourceIds, args.phase);
+  } else if (args.phase === "workoutSegments" || args.phase === "workoutZones") {
+    const rows =
+      operation.scope === "provider"
+        ? await ctx.db
+            .query(args.phase)
+            .withIndex("by_user_provider", (index) =>
+              index
+                .eq("userId", operation.userId)
+                .eq("provider", requireDeletionProvider(operation)),
+            )
+            .take(DELETION_BATCH_SIZE)
+        : await ctx.db
+            .query(args.phase)
+            .withIndex("by_user_provider", (index) => index.eq("userId", operation.userId))
+            .take(DELETION_BATCH_SIZE);
+    for (const row of rows) await ctx.db.delete(row._id);
+    deleted = rows.length;
+  } else if (args.phase === "garminActivityFileJobs") {
+    if (operation.scope !== "provider" || operation.provider === "garmin") {
+      for (const connectionId of connectionIds) {
+        const rows = await ctx.db
+          .query("garminActivityFileJobs")
+          .withIndex("by_connection_status", (index) => index.eq("connectionId", connectionId))
+          .take(DELETION_BATCH_SIZE - deleted);
+        for (const row of rows) await ctx.db.delete(row._id);
+        deleted += rows.length;
+        if (deleted >= DELETION_BATCH_SIZE) break;
+      }
+    }
   } else if (args.phase === "pendingGarminPushPayloads") {
     for (const connectionId of connectionIds) {
       const rows = await ctx.db
@@ -651,7 +689,7 @@ async function deleteScopedBatchHandler(
 
   const deletedCounts = {
     ...operation.deletedCounts,
-    [args.phase]: operation.deletedCounts[args.phase] + deleted,
+    [args.phase]: (operation.deletedCounts[args.phase] ?? 0) + deleted,
   };
   await ctx.db.patch(operation._id, {
     status: "running",
