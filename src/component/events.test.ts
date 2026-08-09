@@ -1,6 +1,6 @@
 import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import schema from "./schema";
 import { modules } from "./test.setup";
 
@@ -375,6 +375,164 @@ describe("events", () => {
 
       expect(exists).not.toBeNull();
       expect(exists?.type).toBe("cycling");
+    });
+  });
+
+  describe("getEventsWithSources", () => {
+    it("returns independently attributable streams with provider filtering", async () => {
+      const t = convexTest(schema, modules);
+      const garminId = await seedDataSource(t, "source-aware-user", "garmin");
+      const stravaId = await t.run(
+        async (ctx) =>
+          await ctx.db.insert("dataSources", {
+            userId: "source-aware-user",
+            provider: "strava",
+            source: "strava-api",
+            deviceModel: "Strava Mobile",
+            deviceType: "phone",
+            originalSourceName: "Strava",
+          }),
+      );
+
+      await t.run(async (ctx) => {
+        await ctx.db.insert("events", {
+          dataSourceId: garminId,
+          userId: "source-aware-user",
+          category: "workout",
+          type: "running",
+          startDatetime: 100,
+        });
+        await ctx.db.insert("events", {
+          dataSourceId: stravaId,
+          userId: "source-aware-user",
+          category: "workout",
+          type: "cycling",
+          startDatetime: 200,
+        });
+      });
+
+      const result = await t.query(api.events.getEventsWithSources, {
+        userId: "source-aware-user",
+        category: "workout",
+      });
+
+      expect(result.events.map((event: { dataSourceId: string }) => event.dataSourceId)).toEqual([
+        stravaId,
+        garminId,
+      ]);
+      expect(result.dataSources).toHaveLength(2);
+      expect(
+        result.dataSources.find((source: { _id: string }) => source._id === stravaId),
+      ).toMatchObject({
+        provider: "strava",
+        source: "strava-api",
+        deviceModel: "Strava Mobile",
+        deviceType: "phone",
+        originalSourceName: "Strava",
+      });
+
+      const firstPage = await t.query(api.events.getEventsWithSources, {
+        userId: "source-aware-user",
+        category: "workout",
+        limit: 1,
+      });
+      expect(firstPage.events.map((event: { dataSourceId: string }) => event.dataSourceId)).toEqual(
+        [stravaId],
+      );
+      expect(firstPage.dataSources.map((source: { _id: string }) => source._id)).toEqual([
+        stravaId,
+      ]);
+      expect(firstPage.hasMore).toBe(true);
+      expect(firstPage.nextCursor).not.toBeNull();
+
+      const secondPage = await t.query(api.events.getEventsWithSources, {
+        userId: "source-aware-user",
+        category: "workout",
+        cursor: firstPage.nextCursor ?? undefined,
+        limit: 1,
+      });
+      expect(
+        secondPage.events.map((event: { dataSourceId: string }) => event.dataSourceId),
+      ).toEqual([garminId]);
+      expect(secondPage.hasMore).toBe(false);
+
+      const garminOnly = await t.query(api.events.getEventsWithSources, {
+        userId: "source-aware-user",
+        category: "workout",
+        provider: "garmin",
+      });
+      expect(garminOnly.events).toHaveLength(1);
+      expect(garminOnly.events[0].dataSourceId).toBe(garminId);
+      expect(garminOnly.dataSources.map((source: { _id: string }) => source._id)).toEqual([
+        garminId,
+      ]);
+    });
+
+    it("does not expose a data source owned by another user", async () => {
+      const t = convexTest(schema, modules);
+      const foreignSourceId = await seedDataSource(t, "other-user", "garmin");
+      await t.run(async (ctx) => {
+        await ctx.db.insert("events", {
+          dataSourceId: foreignSourceId,
+          userId: "other-user",
+          category: "sleep",
+          startDatetime: 100,
+        });
+      });
+
+      const result = await t.query(api.events.getEventsWithSources, {
+        userId: "requesting-user",
+        category: "sleep",
+        dataSourceId: foreignSourceId,
+      });
+
+      expect(result).toEqual({
+        events: [],
+        dataSources: [],
+        nextCursor: null,
+        hasMore: false,
+      });
+    });
+
+    it("paginates events with identical timestamps without skipping a source", async () => {
+      const t = convexTest(schema, modules);
+      const garminId = await seedDataSource(t, "same-time-user", "garmin");
+      const stravaId = await seedDataSource(t, "same-time-user", "strava");
+      await t.run(async (ctx) => {
+        await ctx.db.insert("events", {
+          dataSourceId: garminId,
+          userId: "same-time-user",
+          category: "workout",
+          type: "running",
+          startDatetime: 500,
+        });
+        await ctx.db.insert("events", {
+          dataSourceId: stravaId,
+          userId: "same-time-user",
+          category: "workout",
+          type: "running",
+          startDatetime: 500,
+        });
+      });
+
+      const firstPage = await t.query(api.events.getEventsWithSources, {
+        userId: "same-time-user",
+        category: "workout",
+        limit: 1,
+      });
+      const secondPage = await t.query(api.events.getEventsWithSources, {
+        userId: "same-time-user",
+        category: "workout",
+        cursor: firstPage.nextCursor ?? undefined,
+        limit: 1,
+      });
+
+      const returnedSourceIds = [...firstPage.events, ...secondPage.events].map(
+        (event: { dataSourceId: string }) => event.dataSourceId,
+      );
+      expect(new Set(returnedSourceIds)).toEqual(new Set([garminId, stravaId]));
+      expect(firstPage.hasMore).toBe(true);
+      expect(secondPage.hasMore).toBe(false);
     });
   });
 });

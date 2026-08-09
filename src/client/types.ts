@@ -715,6 +715,22 @@ export interface Connection {
   lastSyncedAt?: number;
 }
 
+/** Provider, writer, and device provenance for stored wearable data. */
+export interface WearableDataSource {
+  _id: string;
+  _creationTime: number;
+  userId: string;
+  provider: ProviderName;
+  connectionId?: string;
+  deviceModel?: string;
+  softwareVersion?: string;
+  /** Provider sub-surface or source application reported during ingestion. */
+  source?: string;
+  deviceType?: string;
+  /** Original app, package, bundle, or writer name when supplied by an SDK. */
+  originalSourceName?: string;
+}
+
 // ---------------------------------------------------------------------------
 // Event types
 // ---------------------------------------------------------------------------
@@ -776,6 +792,9 @@ export interface SleepEvent {
 
 export type HealthEvent = WorkoutEvent | SleepEvent;
 
+/** Event carrying the stable key used to resolve its provider/source metadata. */
+export type SourceAwareHealthEvent = HealthEvent & { dataSourceId: string };
+
 // ---------------------------------------------------------------------------
 // Data point types
 // ---------------------------------------------------------------------------
@@ -790,6 +809,16 @@ export interface DataPoint {
   max?: number;
   last?: number;
   count?: number;
+}
+
+/** Time-series point carrying the stable key for its originating data source. */
+export interface SourceAwareDataPoint extends DataPoint {
+  dataSourceId: string;
+}
+
+export interface SourceAwareTimeSeriesResult {
+  points: SourceAwareDataPoint[];
+  dataSources: WearableDataSource[];
 }
 
 export interface TimeSeriesPage {
@@ -892,6 +921,13 @@ export interface EffectiveTimeSeriesPolicy {
 
 export interface EventsPage {
   events: HealthEvent[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+export interface SourceAwareEventsPage {
+  events: SourceAwareHealthEvent[];
+  dataSources: WearableDataSource[];
   nextCursor: string | null;
   hasMore: boolean;
 }

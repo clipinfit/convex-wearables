@@ -3,7 +3,7 @@ date: 2026-08-01
 status: ACTIVE_ROADMAP
 owner_repo: convex-wearables
 reference_repo: ../open-wearables
-reference_revision: 87f589316f269662450d1d83f5b5c640fc1531e6
+reference_revision: 44a268be623e81995e896b05ed93a56411ddf807
 ---
 
 # Open Wearables Alignment Roadmap
@@ -46,7 +46,8 @@ component data needs no migration.
 | Released (`0.9.0`) | SDK ingestion resilience | [sdk-ingestion-resilience-prd.md](./sdk-ingestion-resilience-prd.md) | Released with versioned partial-safe SDK ingestion, bounded rejection reports, tests, and public documentation. |
 | Released (`0.10.0`) | Provider-neutral workout enrichment | [workout-enrichment-prd.md](./workout-enrichment-prd.md) | Released with provider-neutral segments/zones and opt-in Garmin FIT enrichment. |
 | Released (`0.11.0`) | Live provider webhooks | [polar-suunto-webhooks-prd.md](./polar-suunto-webhooks-prd.md) | Released with secure receipt-first Polar, WHOOP v2, and Suunto inbound notifications, isolated durable processing, cleanup, deletion integration, tests, and docs. |
-| Implemented (planned `0.12.0`) | Durable outgoing events and self-service webhooks | [outgoing-webhooks-prd.md](./outgoing-webhooks-prd.md) | Complete locally with a transactional event contract, internal callbacks, encrypted self-service endpoints, DNS-pinned delivery, durable retries/recovery, lifecycle cleanup, tests, and docs. Not yet published. |
+| Released (`0.12.0`) | Durable outgoing events and self-service webhooks | [outgoing-webhooks-prd.md](./outgoing-webhooks-prd.md) | Released with a transactional event contract, internal callbacks, encrypted self-service endpoints, DNS-pinned delivery, durable retries/recovery, lifecycle cleanup, tests, and docs. |
+| Implemented (planned `0.13.0`) | Source-aware reads | [source-aware-reads-prd.md](./source-aware-reads-prd.md) | Additive data-source listing and provenance-rich event/time-series reads preserve independent streams for consumer-owned canonicalization. |
 
 ## Deferred or demand-driven work
 
@@ -69,6 +70,7 @@ component data needs no migration.
 | Workout enrichment | Additive child tables and indexes | None required; optional historical enrichment | Adopt new read APIs only when product surfaces need detail | Update the package and deploy schema before querying the new APIs. |
 | Durable outgoing events and self-service webhooks | Additive endpoint, outbox-event, delivery, and attempt tables | None | Optional host callback; external delivery additionally requires host authorization wrappers, encryption configuration, and endpoint-management surfaces | Update the package and deploy the additive schema. Existing behavior is unchanged while delivery is disabled; enable callbacks or external subscriptions independently. |
 | Live provider webhooks | Additive receipt/registration tables and Suunto connection-lookup index | None | Mount only selected routes; configure provider secrets/dashboard or Polar registration | Deploy schema, enable one provider at a time, and keep pull reconciliation active. |
+| Source-aware reads | None | None | Optional adoption of new listing and source-aware read methods | Update and deploy the package, then adopt source-aware methods only where attribution or canonicalization is needed. |
 
 Deferred work keeps its own migration analysis in its PRD but is not part of the
 active release pipeline.

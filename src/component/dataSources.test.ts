@@ -1,5 +1,6 @@
 import { convexTest } from "convex-test";
 import { describe, expect, it } from "vitest";
+import { api } from "./_generated/api";
 import schema from "./schema";
 import { modules } from "./test.setup";
 
@@ -80,6 +81,39 @@ describe("dataSources", () => {
 
     expect(stravaSources).toHaveLength(1);
     expect(stravaSources[0].provider).toBe("strava");
+  });
+
+  it("returns complete public provenance documents", async () => {
+    const t = convexTest(schema, modules);
+    const sourceId = await t.run(
+      async (ctx) =>
+        await ctx.db.insert("dataSources", {
+          userId: "user-provenance",
+          provider: "google",
+          deviceModel: "Pixel Watch 3",
+          softwareVersion: "Wear OS 6",
+          source: "health-connect",
+          deviceType: "watch",
+          originalSourceName: "Fitbit",
+        }),
+    );
+
+    const sources = await t.query(api.dataSources.getByUser, {
+      userId: "user-provenance",
+    });
+
+    expect(sources).toEqual([
+      expect.objectContaining({
+        _id: sourceId,
+        userId: "user-provenance",
+        provider: "google",
+        deviceModel: "Pixel Watch 3",
+        softwareVersion: "Wear OS 6",
+        source: "health-connect",
+        deviceType: "watch",
+        originalSourceName: "Fitbit",
+      }),
+    ]);
   });
 
   it("upserts by user/provider/device/source (getOrCreate pattern)", async () => {

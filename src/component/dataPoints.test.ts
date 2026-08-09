@@ -223,6 +223,93 @@ describe("dataPoints", () => {
       ]);
     });
 
+    it("returns source-aware points and supports provider or source filtering", async () => {
+      const t = convexTest(schema, modules);
+      const garminId = await t.run(
+        async (ctx) =>
+          await ctx.db.insert("dataSources", {
+            userId: "source-aware-user",
+            provider: "garmin",
+            source: "garmin-api",
+            deviceModel: "Forerunner 965",
+            deviceType: "watch",
+          }),
+      );
+      const stravaId = await t.run(
+        async (ctx) =>
+          await ctx.db.insert("dataSources", {
+            userId: "source-aware-user",
+            provider: "strava",
+            source: "strava-api",
+            originalSourceName: "Garmin Connect",
+          }),
+      );
+
+      await t.run(async (ctx) => {
+        await ctx.db.insert("dataPoints", {
+          dataSourceId: garminId,
+          seriesType: "heart_rate",
+          recordedAt: 100,
+          value: 70,
+        });
+        await ctx.db.insert("dataPoints", {
+          dataSourceId: stravaId,
+          seriesType: "heart_rate",
+          recordedAt: 200,
+          value: 75,
+        });
+      });
+
+      const result = await t.query(api.dataPoints.getTimeSeriesWithSources, {
+        userId: "source-aware-user",
+        seriesType: "heart_rate",
+        startDate: 0,
+        endDate: 300,
+      });
+
+      expect(result.points).toEqual([
+        expect.objectContaining({ timestamp: 100, value: 70, dataSourceId: garminId }),
+        expect.objectContaining({ timestamp: 200, value: 75, dataSourceId: stravaId }),
+      ]);
+      expect(
+        result.dataSources.find((source: { _id: string }) => source._id === garminId),
+      ).toMatchObject({
+        provider: "garmin",
+        source: "garmin-api",
+        deviceModel: "Forerunner 965",
+        deviceType: "watch",
+      });
+      expect(
+        result.dataSources.find((source: { _id: string }) => source._id === stravaId),
+      ).toMatchObject({
+        provider: "strava",
+        originalSourceName: "Garmin Connect",
+      });
+
+      const stravaOnly = await t.query(api.dataPoints.getTimeSeriesWithSources, {
+        userId: "source-aware-user",
+        provider: "strava",
+        seriesType: "heart_rate",
+        startDate: 0,
+        endDate: 300,
+      });
+      expect(
+        stravaOnly.points.map((point: { dataSourceId: string }) => point.dataSourceId),
+      ).toEqual([stravaId]);
+      expect(stravaOnly.dataSources.map((source: { _id: string }) => source._id)).toEqual([
+        stravaId,
+      ]);
+
+      const mismatchedSource = await t.query(api.dataPoints.getTimeSeriesWithSources, {
+        userId: "other-user",
+        dataSourceId: garminId,
+        seriesType: "heart_rate",
+        startDate: 0,
+        endDate: 300,
+      });
+      expect(mismatchedSource).toEqual({ points: [], dataSources: [] });
+    });
+
     it("paginates with take()", async () => {
       const t = convexTest(schema, modules);
       const dsId = await seedDataSource(t);

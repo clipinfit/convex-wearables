@@ -3,6 +3,19 @@ import { internalMutation, mutation, query } from "./_generated/server";
 import { assertIngestionAllowed } from "./lifecycle";
 import { providerName } from "./schema";
 
+export const dataSourceDocumentValidator = v.object({
+  _id: v.id("dataSources"),
+  _creationTime: v.number(),
+  userId: v.string(),
+  provider: providerName,
+  connectionId: v.optional(v.id("connections")),
+  deviceModel: v.optional(v.string()),
+  softwareVersion: v.optional(v.string()),
+  source: v.optional(v.string()),
+  deviceType: v.optional(v.string()),
+  originalSourceName: v.optional(v.string()),
+});
+
 // ---------------------------------------------------------------------------
 // Queries
 // ---------------------------------------------------------------------------
@@ -12,7 +25,7 @@ import { providerName } from "./schema";
  */
 export const getByUser = query({
   args: { userId: v.string() },
-  returns: v.array(v.any()),
+  returns: v.array(dataSourceDocumentValidator),
   handler: async (ctx, args) => {
     return await ctx.db
       .query("dataSources")
@@ -29,7 +42,7 @@ export const getByUserProvider = query({
     userId: v.string(),
     provider: providerName,
   },
-  returns: v.array(v.any()),
+  returns: v.array(dataSourceDocumentValidator),
   handler: async (ctx, args) => {
     return await ctx.db
       .query("dataSources")

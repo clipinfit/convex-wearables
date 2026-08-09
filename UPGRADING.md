@@ -25,6 +25,33 @@ Use the package version to signal upgrade risk:
 In practice, yes: changes like new optional fields or new tables should usually
 be `minor`, not `major`.
 
+## Planned version 0.13.0: source-aware reads
+
+This backwards-compatible minor release adds public data-source listing and
+source-aware event/time-series methods. Existing storage already contains the
+required provider, writer, and device provenance, so there is no schema change,
+stored-row rewrite, environment change, or host-run migration.
+
+Existing `getEvents`, `getEvent`, and `getTimeSeries` callers remain unchanged.
+Consumers can opt into:
+
+- `getDataSources` and `getProviderDataSources`;
+- `getEventsWithSources`; and
+- `getTimeSeriesWithSources`.
+
+Source-aware result rows carry `dataSourceId`; a normalized `dataSources`
+sidecar contains the represented provider/source/device documents once. Build a
+map by `_id` before applying consumer-owned attribution, provider precedence, or
+cross-provider duplicate suppression.
+
+After updating the package, deploy the component functions. No migration
+command is required. Rollback is code-only: return callers to the legacy read
+methods. No data written by this release prevents downgrading.
+
+This is minor rather than patch because it adds public methods and types. It is
+not major because the existing public methods and persisted schema are
+unchanged.
+
 ## Version 0.10.0: workout enrichment and Garmin FIT files
 
 This is a backwards-compatible minor release. It adds `workoutSegments`,

@@ -234,6 +234,7 @@ const wearables = new WearablesClient(components.wearables, config);
 | Method | Description |
 |--------|-------------|
 | `getEvents(ctx, { userId, category, startDate?, endDate?, limit?, cursor? })` | Paginated events query |
+| `getEventsWithSources(ctx, { userId, category, provider?, dataSourceId?, ... })` | Paginated events plus provider/writer/device provenance |
 | `getEvent(ctx, { eventId })` | Get a single event by ID |
 | `getWorkoutEnrichment(ctx, { eventId })` | Get normalized laps, splits, lengths, sets, and zones |
 | `upsertWorkoutEnrichment(ctx, input)` | Replace normalized enrichment from a custom parser/provider |
@@ -245,6 +246,7 @@ The `category` parameter is `"workout"` or `"sleep"`. Results are ordered by sta
 | Method | Description |
 |--------|-------------|
 | `getTimeSeries(ctx, { userId, seriesType, startDate, endDate, limit? })` | Get time-series data points |
+| `getTimeSeriesWithSources(ctx, { userId, seriesType, startDate, endDate, provider?, dataSourceId?, limit?, order? })` | Get policy-aware points plus provider/writer/device provenance |
 | `getLatestDataPoint(ctx, { userId, seriesType })` | Get the most recent value for a metric |
 | `getAvailableSeriesTypes(ctx, { userId })` | List which metric types have data |
 | `getTimeSeriesPolicyConfiguration(ctx)` | Read the persisted default rules, presets, and maintenance settings |
@@ -276,7 +278,40 @@ category and date range.
 
 | Method | Description |
 |--------|-------------|
+| `getDataSources(ctx, { userId })` | List every provider/writer/device stream for a user |
+| `getProviderDataSources(ctx, { userId, provider })` | List streams for one provider family |
 | `getOrCreateDataSource(ctx, { userId, provider, deviceModel?, source? })` | Get or create a data source |
+
+Source-aware reads return a normalized envelope. Each event or point contains a
+stable `dataSourceId`, while the matching metadata is returned once in the
+`dataSources` sidecar:
+
+```ts
+const result = await wearables.getTimeSeriesWithSources(ctx, {
+  userId,
+  seriesType: "heart_rate",
+  startDate,
+  endDate,
+});
+
+const sourcesById = new Map(result.dataSources.map((source) => [source._id, source]));
+
+for (const point of result.points) {
+  const source = sourcesById.get(point.dataSourceId);
+  console.log({
+    value: point.value,
+    provider: source?.provider, // integration family, e.g. "google"
+    writer: source?.originalSourceName ?? source?.source, // e.g. "Fitbit"
+    device: source?.deviceModel,
+  });
+}
+```
+
+Pass `provider` to isolate one provider family, or `dataSourceId` to isolate one
+exact writer/device stream. These methods preserve independent streams; they do
+not choose a preferred provider or suppress a Garmin record mirrored through
+Strava, HealthKit, or Health Connect. Canonicalization remains consumer-owned.
+No schema migration is required when adopting the source-aware APIs.
 
 #### Sync Control
 

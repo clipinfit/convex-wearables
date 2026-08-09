@@ -70,6 +70,10 @@ import type {
   SdkSyncPayload,
   SeedSyntheticDataInput,
   SeedSyntheticDataResult,
+  SourceAwareDataPoint,
+  SourceAwareEventsPage,
+  SourceAwareHealthEvent,
+  SourceAwareTimeSeriesResult,
   StartDataDeletionResult,
   SyncJob,
   SyncStatus,
@@ -84,6 +88,7 @@ import type {
   TimeSeriesPolicyPresetInput,
   TimeSeriesPolicyRuleInput,
   UserTimeSeriesPolicyPreset,
+  WearableDataSource,
   WearablesConfig,
   WearablesEventEnvelope,
   WearablesEventType,
@@ -164,6 +169,10 @@ export type {
   SdkSyncPayload,
   SeedSyntheticDataInput,
   SeedSyntheticDataResult,
+  SourceAwareDataPoint,
+  SourceAwareEventsPage,
+  SourceAwareHealthEvent,
+  SourceAwareTimeSeriesResult,
   StartDataDeletionResult,
   SyncJob,
   SyncStatus,
@@ -178,6 +187,7 @@ export type {
   TimeSeriesPolicyPresetInput,
   TimeSeriesPolicyRuleInput,
   UserTimeSeriesPolicyPreset,
+  WearableDataSource,
   WearablesConfig,
   WearablesEventEnvelope,
   WearablesEventType,
@@ -339,6 +349,30 @@ export class WearablesClient {
   }
 
   /**
+   * Get events plus the provider/source/device documents referenced by them.
+   * The component preserves independent streams; callers own any canonical
+   * selection or cross-provider duplicate suppression.
+   */
+  async getEventsWithSources(
+    ctx: QueryRunner,
+    args: {
+      userId: string;
+      category: EventCategory;
+      provider?: ProviderName;
+      dataSourceId?: string;
+      startDate?: number;
+      endDate?: number;
+      limit?: number;
+      cursor?: string;
+    },
+  ): Promise<SourceAwareEventsPage> {
+    return (await ctx.runQuery(
+      this.component.events.getEventsWithSources,
+      args,
+    )) as SourceAwareEventsPage;
+  }
+
+  /**
    * Get a single event by ID.
    */
   async getEvent(ctx: QueryRunner, args: { eventId: string }): Promise<HealthEvent | null> {
@@ -388,6 +422,29 @@ export class WearablesClient {
     },
   ): Promise<DataPoint[]> {
     return await ctx.runQuery(this.component.dataPoints.getTimeSeriesForUser, args);
+  }
+
+  /**
+   * Get policy-aware time-series points with stable data-source provenance.
+   * Provider/source precedence remains a caller concern.
+   */
+  async getTimeSeriesWithSources(
+    ctx: QueryRunner,
+    args: {
+      userId: string;
+      seriesType: string;
+      startDate: number;
+      endDate: number;
+      provider?: ProviderName;
+      dataSourceId?: string;
+      limit?: number;
+      order?: "asc" | "desc";
+    },
+  ): Promise<SourceAwareTimeSeriesResult> {
+    return (await ctx.runQuery(
+      this.component.dataPoints.getTimeSeriesWithSources,
+      args,
+    )) as SourceAwareTimeSeriesResult;
   }
 
   /**
@@ -496,6 +553,22 @@ export class WearablesClient {
   // -----------------------------------------------------------------------
   // Data Sources
   // -----------------------------------------------------------------------
+
+  /** Get every provider/source/device stream known for a user. */
+  async getDataSources(ctx: QueryRunner, args: { userId: string }): Promise<WearableDataSource[]> {
+    return (await ctx.runQuery(this.component.dataSources.getByUser, args)) as WearableDataSource[];
+  }
+
+  /** Get the data-source streams for one provider family. */
+  async getProviderDataSources(
+    ctx: QueryRunner,
+    args: { userId: string; provider: ProviderName },
+  ): Promise<WearableDataSource[]> {
+    return (await ctx.runQuery(
+      this.component.dataSources.getByUserProvider,
+      args,
+    )) as WearableDataSource[];
+  }
 
   /**
    * Get or create a data source for a user/provider/device.

@@ -10,6 +10,7 @@ import {
   mutation,
   query,
 } from "./_generated/server";
+import { dataSourceDocumentValidator } from "./dataSources";
 import { assertIngestionAllowed } from "./lifecycle";
 import { captureOutgoingEvent, outgoingEventFingerprint } from "./outgoingWebhooks";
 import { providerName, timeSeriesAggregation } from "./schema";
@@ -60,6 +61,21 @@ type TimeSeriesPoint = {
   last?: number;
   count?: number;
 };
+
+type SourceAwareTimeSeriesPoint = TimeSeriesPoint & { dataSourceId: Id<"dataSources"> };
+
+function compareSourceAwarePoints(
+  left: SourceAwareTimeSeriesPoint,
+  right: SourceAwareTimeSeriesPoint,
+  order: "asc" | "desc",
+): number {
+  const timeDifference =
+    order === "asc" ? left.timestamp - right.timestamp : right.timestamp - left.timestamp;
+  if (timeDifference !== 0) return timeDifference;
+  return order === "asc"
+    ? String(left.dataSourceId).localeCompare(String(right.dataSourceId))
+    : String(right.dataSourceId).localeCompare(String(left.dataSourceId));
+}
 
 type StoredPointInput = {
   recordedAt: number;
@@ -139,6 +155,19 @@ const maintenanceInputValidator = v.object({
 const timeSeriesPointValidator = v.object({
   timestamp: v.number(),
   value: v.number(),
+  resolution: v.optional(v.union(v.literal("raw"), v.literal("rollup"))),
+  bucketMinutes: v.optional(v.number()),
+  avg: v.optional(v.number()),
+  min: v.optional(v.number()),
+  max: v.optional(v.number()),
+  last: v.optional(v.number()),
+  count: v.optional(v.number()),
+});
+
+const sourceAwareTimeSeriesPointValidator = v.object({
+  timestamp: v.number(),
+  value: v.number(),
+  dataSourceId: v.id("dataSources"),
   resolution: v.optional(v.union(v.literal("raw"), v.literal("rollup"))),
   bucketMinutes: v.optional(v.number()),
   avg: v.optional(v.number()),
@@ -277,6 +306,87 @@ export const getTimeSeriesForUser = query({
     return limited.sort((a, b) =>
       responseOrder === "asc" ? a.timestamp - b.timestamp : b.timestamp - a.timestamp,
     );
+  },
+});
+
+/**
+ * Get policy-aware time series with stable source provenance.
+ *
+ * Each point carries a `dataSourceId`; provider, writer, and device metadata
+ * are returned once in `dataSources` so callers can process independent
+ * streams without the component selecting or deduplicating a canonical source.
+ */
+export const getTimeSeriesWithSources = query({
+  args: {
+    userId: v.string(),
+    seriesType: v.string(),
+    startDate: v.number(),
+    endDate: v.number(),
+    provider: v.optional(providerName),
+    dataSourceId: v.optional(v.id("dataSources")),
+    limit: v.optional(v.number()),
+    order: v.optional(v.union(v.literal("asc"), v.literal("desc"))),
+  },
+  returns: v.object({
+    points: v.array(sourceAwareTimeSeriesPointValidator),
+    dataSources: v.array(dataSourceDocumentValidator),
+  }),
+  handler: async (ctx, args) => {
+    const limit = Math.min(Math.max(args.limit ?? 500, 1), MAX_QUERY_LIMIT);
+    const selectionOrder = args.order ?? "desc";
+    const responseOrder = args.order ?? "asc";
+
+    let sources: Doc<"dataSources">[];
+    if (args.dataSourceId !== undefined) {
+      const source = await ctx.db.get(args.dataSourceId);
+      sources =
+        source &&
+        source.userId === args.userId &&
+        (args.provider === undefined || source.provider === args.provider)
+          ? [source]
+          : [];
+    } else if (args.provider !== undefined) {
+      const provider = args.provider;
+      sources = await ctx.db
+        .query("dataSources")
+        .withIndex("by_user_provider", (index) =>
+          index.eq("userId", args.userId).eq("provider", provider),
+        )
+        .collect();
+    } else {
+      sources = await ctx.db
+        .query("dataSources")
+        .withIndex("by_user_provider", (index) => index.eq("userId", args.userId))
+        .collect();
+    }
+
+    const points = (
+      await Promise.all(
+        sources.map(async (source) => {
+          const sourcePoints = await getPolicyAwarePointsForSource(ctx.db, {
+            dataSourceId: source._id,
+            userId: source.userId,
+            provider: source.provider,
+            seriesType: args.seriesType,
+            startDate: args.startDate,
+            endDate: args.endDate,
+            limit,
+            order: selectionOrder,
+          });
+          return sourcePoints.map((point) => ({ ...point, dataSourceId: source._id }));
+        }),
+      )
+    )
+      .flat()
+      .sort((left, right) => compareSourceAwarePoints(left, right, selectionOrder))
+      .slice(0, limit)
+      .sort((left, right) => compareSourceAwarePoints(left, right, responseOrder));
+
+    const representedSourceIds = new Set(points.map((point) => point.dataSourceId));
+    return {
+      points,
+      dataSources: sources.filter((source) => representedSourceIds.has(source._id)),
+    };
   },
 });
 

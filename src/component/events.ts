@@ -1,9 +1,170 @@
 import { v } from "convex/values";
-import type { Id } from "./_generated/dataModel";
-import { internalMutation, internalQuery, query } from "./_generated/server";
+import type { Doc, Id } from "./_generated/dataModel";
+import { type DatabaseReader, internalMutation, internalQuery, query } from "./_generated/server";
+import { dataSourceDocumentValidator } from "./dataSources";
 import { assertIngestionAllowed } from "./lifecycle";
 import { captureOutgoingEvent, outgoingEventFingerprint } from "./outgoingWebhooks";
 import { eventCategory, providerName } from "./schema";
+
+type EventReadArgs = {
+  userId: string;
+  category: "workout" | "sleep";
+  provider?: Doc<"dataSources">["provider"];
+  dataSourceId?: Id<"dataSources">;
+  startDate?: number;
+  endDate?: number;
+  limit?: number;
+  cursor?: string;
+};
+
+type SourceAwareEventCursor = {
+  version: 1;
+  startDatetime: number;
+  eventId: string;
+};
+
+function parseSourceAwareEventCursor(
+  cursor: string | undefined,
+):
+  | { kind: "none" }
+  | { kind: "legacy"; startDatetime: number }
+  | { kind: "sourceAware"; value: SourceAwareEventCursor } {
+  if (cursor === undefined) return { kind: "none" };
+
+  const legacyTimestamp = Number(cursor);
+  if (Number.isFinite(legacyTimestamp)) {
+    return { kind: "legacy", startDatetime: legacyTimestamp };
+  }
+
+  try {
+    const parsed = JSON.parse(cursor) as Partial<SourceAwareEventCursor>;
+    if (
+      parsed.version === 1 &&
+      typeof parsed.startDatetime === "number" &&
+      Number.isFinite(parsed.startDatetime) &&
+      typeof parsed.eventId === "string" &&
+      parsed.eventId.length > 0
+    ) {
+      return { kind: "sourceAware", value: parsed as SourceAwareEventCursor };
+    }
+  } catch {
+    // Throw the same safe validation error for malformed JSON and shapes.
+  }
+
+  throw new Error("cursor is not a valid source-aware event cursor");
+}
+
+function compareEventsDescending(left: Doc<"events">, right: Doc<"events">): number {
+  const timeDifference = right.startDatetime - left.startDatetime;
+  return timeDifference !== 0 ? timeDifference : String(right._id).localeCompare(String(left._id));
+}
+
+function encodeSourceAwareEventCursor(event: Doc<"events">): string {
+  return JSON.stringify({
+    version: 1,
+    startDatetime: event.startDatetime,
+    eventId: String(event._id),
+  } satisfies SourceAwareEventCursor);
+}
+
+async function resolveReadableDataSources(db: DatabaseReader, args: EventReadArgs) {
+  if (args.dataSourceId) {
+    const source = await db.get(args.dataSourceId);
+    if (
+      !source ||
+      source.userId !== args.userId ||
+      (args.provider !== undefined && source.provider !== args.provider)
+    ) {
+      return [];
+    }
+    return [source];
+  }
+
+  if (args.provider === undefined) {
+    return await db
+      .query("dataSources")
+      .withIndex("by_user_provider", (index) => index.eq("userId", args.userId))
+      .collect();
+  }
+
+  const provider = args.provider;
+  return await db
+    .query("dataSources")
+    .withIndex("by_user_provider", (index) =>
+      index.eq("userId", args.userId).eq("provider", provider),
+    )
+    .collect();
+}
+
+async function getEventsForSource(
+  db: DatabaseReader,
+  source: Doc<"dataSources">,
+  args: EventReadArgs,
+  take: number,
+) {
+  const cursor = parseSourceAwareEventCursor(args.cursor);
+  const cursorTime =
+    cursor.kind === "none"
+      ? undefined
+      : cursor.kind === "legacy"
+        ? cursor.startDatetime
+        : cursor.value.startDatetime;
+
+  const upperExclusive =
+    cursorTime === undefined
+      ? undefined
+      : args.endDate === undefined
+        ? cursorTime
+        : Math.min(cursorTime, args.endDate + 1);
+
+  const olderEvents = await db
+    .query("events")
+    .withIndex("by_source_category_time", (index) => {
+      const range = index.eq("dataSourceId", source._id).eq("category", args.category);
+      if (args.startDate !== undefined && upperExclusive !== undefined) {
+        return range.gte("startDatetime", args.startDate).lt("startDatetime", upperExclusive);
+      }
+      if (args.startDate !== undefined && args.endDate !== undefined) {
+        return range.gte("startDatetime", args.startDate).lte("startDatetime", args.endDate);
+      }
+      if (args.startDate !== undefined) {
+        return range.gte("startDatetime", args.startDate);
+      }
+      if (upperExclusive !== undefined) {
+        return range.lt("startDatetime", upperExclusive);
+      }
+      if (args.endDate !== undefined) {
+        return range.lte("startDatetime", args.endDate);
+      }
+      return range;
+    })
+    .order("desc")
+    .take(take);
+
+  if (cursor.kind !== "sourceAware") return olderEvents;
+
+  const cursorInDateRange =
+    (args.startDate === undefined || cursor.value.startDatetime >= args.startDate) &&
+    (args.endDate === undefined || cursor.value.startDatetime <= args.endDate);
+  if (!cursorInDateRange) return olderEvents;
+
+  const sameTimestampEvents = await db
+    .query("events")
+    .withIndex("by_source_category_time", (index) =>
+      index
+        .eq("dataSourceId", source._id)
+        .eq("category", args.category)
+        .eq("startDatetime", cursor.value.startDatetime),
+    )
+    .collect();
+
+  return [
+    ...sameTimestampEvents.filter(
+      (event) => String(event._id).localeCompare(cursor.value.eventId) < 0,
+    ),
+    ...olderEvents,
+  ];
+}
 
 // ---------------------------------------------------------------------------
 // Queries
@@ -97,6 +258,51 @@ export const getEvents = query({
       hasMore && events.length > 0 ? String(events[events.length - 1].startDatetime) : null;
 
     return { events, nextCursor, hasMore };
+  },
+});
+
+/**
+ * Get source-aware events without collapsing provider or device streams.
+ *
+ * Events carry a `dataSourceId`; the matching data-source documents are
+ * returned once in the sidecar array to avoid repeating metadata per event.
+ */
+export const getEventsWithSources = query({
+  args: {
+    userId: v.string(),
+    category: eventCategory,
+    provider: v.optional(providerName),
+    dataSourceId: v.optional(v.id("dataSources")),
+    startDate: v.optional(v.number()),
+    endDate: v.optional(v.number()),
+    limit: v.optional(v.number()),
+    cursor: v.optional(v.string()),
+  },
+  returns: v.object({
+    events: v.array(v.any()),
+    dataSources: v.array(dataSourceDocumentValidator),
+    nextCursor: v.union(v.string(), v.null()),
+    hasMore: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const limit = Math.min(Math.max(args.limit ?? 20, 1), 100);
+    const sources = await resolveReadableDataSources(ctx.db, args);
+    const candidates = (
+      await Promise.all(
+        sources.map((source) => getEventsForSource(ctx.db, source, args, limit + 1)),
+      )
+    )
+      .flat()
+      .sort(compareEventsDescending);
+
+    const hasMore = candidates.length > limit;
+    const events = candidates.slice(0, limit);
+    const representedSourceIds = new Set(events.map((event) => event.dataSourceId));
+    const dataSources = sources.filter((source) => representedSourceIds.has(source._id));
+    const nextCursor =
+      hasMore && events.length > 0 ? encodeSourceAwareEventCursor(events[events.length - 1]) : null;
+
+    return { events, dataSources, nextCursor, hasMore };
   },
 });
 

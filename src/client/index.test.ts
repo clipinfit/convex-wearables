@@ -177,6 +177,84 @@ describe("package exports", () => {
     expect(typeof stravaWebhookEvent).toBe("function");
   });
 
+  it("exposes additive source-aware read helpers", async () => {
+    const component = {
+      dataSources: {
+        getByUser: "getDataSources",
+        getByUserProvider: "getProviderDataSources",
+      },
+      events: { getEventsWithSources: "getEventsWithSources" },
+      dataPoints: { getTimeSeriesWithSources: "getTimeSeriesWithSources" },
+    } as unknown as WearablesComponent;
+    const client = new WearablesClient(component, { providers: {} });
+    const calls: Array<{ ref: unknown; args: unknown }> = [];
+    const queryCtx: Parameters<WearablesClient["getDataSources"]>[0] = {
+      runQuery: async (...callArgs: unknown[]) => {
+        const [ref, args] = callArgs;
+        calls.push({ ref, args });
+        if (ref === "getEventsWithSources") {
+          return { events: [], dataSources: [], nextCursor: null, hasMore: false } as never;
+        }
+        if (ref === "getTimeSeriesWithSources") {
+          return { points: [], dataSources: [] } as never;
+        }
+        return [] as never;
+      },
+    };
+
+    await client.getDataSources(queryCtx, { userId: "user-1" });
+    await client.getProviderDataSources(queryCtx, {
+      userId: "user-1",
+      provider: "garmin",
+    });
+    await client.getEventsWithSources(queryCtx, {
+      userId: "user-1",
+      category: "workout",
+      provider: "garmin",
+      dataSourceId: "source-1",
+      limit: 10,
+    });
+    await client.getTimeSeriesWithSources(queryCtx, {
+      userId: "user-1",
+      seriesType: "heart_rate",
+      startDate: 100,
+      endDate: 200,
+      provider: "garmin",
+      dataSourceId: "source-1",
+      order: "desc",
+    });
+
+    expect(calls).toEqual([
+      { ref: "getDataSources", args: { userId: "user-1" } },
+      {
+        ref: "getProviderDataSources",
+        args: { userId: "user-1", provider: "garmin" },
+      },
+      {
+        ref: "getEventsWithSources",
+        args: {
+          userId: "user-1",
+          category: "workout",
+          provider: "garmin",
+          dataSourceId: "source-1",
+          limit: 10,
+        },
+      },
+      {
+        ref: "getTimeSeriesWithSources",
+        args: {
+          userId: "user-1",
+          seriesType: "heart_rate",
+          startDate: 100,
+          endDate: 200,
+          provider: "garmin",
+          dataSourceId: "source-1",
+          order: "desc",
+        },
+      },
+    ]);
+  });
+
   it("exposes time-series storage policy helpers on the client", async () => {
     const component = {
       dataPoints: {
