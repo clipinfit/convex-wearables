@@ -1,0 +1,96 @@
+---
+title: Provider Support
+description: Current provider coverage, ingestion paths, and time-series policy applicability.
+---
+
+## Connectors
+
+These are the connector families currently recognized by the component:
+
+<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+  <div className="rounded-xl border bg-white px-4 py-5 text-neutral-950 shadow-sm">
+    <img src="/providers/garmin.svg" alt="Garmin logo" className="h-7 w-auto" />
+    <p className="mt-3 text-sm font-medium">Garmin</p>
+  </div>
+  <div className="rounded-xl border bg-white px-4 py-5 text-neutral-950 shadow-sm">
+    <img src="/providers/strava.svg" alt="Strava logo" className="h-7 w-auto" />
+    <p className="mt-3 text-sm font-medium">Strava</p>
+  </div>
+  <div className="rounded-xl border bg-white px-4 py-5 text-neutral-950 shadow-sm">
+    <img src="/providers/whoop.svg" alt="WHOOP logo" className="h-7 w-auto" />
+    <p className="mt-3 text-sm font-medium">WHOOP</p>
+  </div>
+  <div className="rounded-xl border bg-white px-4 py-5 text-neutral-950 shadow-sm">
+    <img src="/providers/polar.svg" alt="Polar logo" className="h-7 w-auto" />
+    <p className="mt-3 text-sm font-medium">Polar</p>
+  </div>
+  <div className="rounded-xl border bg-white px-4 py-5 text-neutral-950 shadow-sm">
+    <img src="/providers/suunto.svg" alt="Suunto logo" className="h-7 w-auto" />
+    <p className="mt-3 text-sm font-medium">Suunto</p>
+  </div>
+  <div className="rounded-xl border bg-white px-4 py-5 text-neutral-950 shadow-sm">
+    <img src="/providers/apple.svg" alt="Apple logo" className="h-7 w-auto" />
+    <p className="mt-3 text-sm font-medium">Apple HealthKit</p>
+  </div>
+  <div className="rounded-xl border bg-white px-4 py-5 text-neutral-950 shadow-sm">
+    <img src="/providers/samsung.svg" alt="Samsung logo" className="h-7 w-auto" />
+    <p className="mt-3 text-sm font-medium">Samsung Health</p>
+  </div>
+  <div className="rounded-xl border bg-white px-4 py-5 text-neutral-950 shadow-sm">
+    <img
+      src="/providers/google-health-connect.svg"
+      alt="Google Health Connect logo"
+      className="h-7 w-auto"
+    />
+    <p className="mt-3 text-sm font-medium">Google Health Connect</p>
+  </div>
+  <div className="rounded-xl border bg-gradient-to-br from-violet-100 to-cyan-50 px-4 py-5 text-neutral-950 shadow-sm">
+    <div className="grid size-8 place-items-center rounded-lg bg-violet-600 text-base text-white">✦</div>
+    <p className="mt-3 text-sm font-medium">Synthetic / Synth</p>
+  </div>
+</div>
+
+## Support matrix
+
+| Provider | Ingestion path | Current data coverage | Time-series rows | Storage policies | Remote deregistration |
+|---|---|---|---|---|---|
+| Garmin | OAuth sync + push webhooks + durable backfill | Workouts, sleep, time-series, summaries | Yes | Applies | Supported |
+| Strava | OAuth sync + webhook-triggered resync | Workouts, connection lifecycle, sync jobs | No | Currently no-op | Supported |
+| Whoop | OAuth pull + signed v2 targeted-fetch webhooks | Workouts, sleep, time-series, summaries | Yes | Applies | Supported |
+| Polar | OAuth pull + signed targeted-fetch webhooks | Workouts; live `EXERCISE` | No | Currently no-op | Supported |
+| Suunto | OAuth pull + signed inline/targeted webhooks | Workouts, sleep, time-series, summaries | Yes | Applies | Not implemented |
+| Apple HealthKit | Normalized SDK push from your app | Workouts, sleep, time-series, summaries | Yes | Applies | Not applicable |
+| Samsung Health | Normalized SDK push from your app | Workouts, sleep, time-series, summaries | Yes | Applies | Not applicable |
+| Google Health Connect | Normalized SDK push from your app | Workouts, sleep, time-series, summaries | Yes | Applies | Not applicable |
+| Synthetic | Deterministic local generation | Workouts, sleep, time-series, summaries | Yes | Applies | Not applicable |
+
+## Important distinction
+
+Apple HealthKit, Samsung Health, and Google Health Connect are currently supported through your own mobile app or ingestion layer sending normalized payloads.
+
+The component stores and queries that data, but it does not currently fetch it directly from vendor APIs. Synthetic data is generated locally inside the component, has no external credentials, and must be explicitly enabled.
+
+## Time-series policies and providers
+
+The storage-policy `provider` field accepts every supported provider key, not only `garmin`.
+
+The policy engine is shared across all ingestion paths and becomes active whenever a source writes `dataPoints` rows. In practice today that means:
+
+- Garmin
+- Whoop
+- Suunto
+- Apple HealthKit
+- Samsung Health
+- Google Health Connect
+- Synthetic
+
+Rules that target `strava` or `polar` are still valid, but they do not currently change time-series storage because those integrations do not currently write `dataPoints`.
+
+## Choosing the right integration path
+
+- If the provider offers OAuth and server-side APIs you want to sync from, use the cloud integration flow.
+- If you need low-latency WHOOP, Polar, or Suunto updates, add [Live Provider Webhooks](/docs/guides/live-provider-webhooks) while retaining pull reconciliation.
+- If the data lives on-device and your app already reads it, use [SDK Push](/docs/guides/sdk-push).
+- If you need stable product fixtures without an external account, use [Synthetic Data](/docs/guides/synthetic-data).
+- If you need to control row growth for dense metrics regardless of source, use [Storage Policies](/docs/guides/storage-policies).
+- If you need to disconnect, revoke access, or erase stored provider data, use [Disconnecting and Deleting Data](/docs/guides/data-deletion).

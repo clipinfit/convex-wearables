@@ -1,5 +1,5 @@
 {
   "node": {
-    "projectPath": "./src/component"
+    "projectPath": "./packages/convex-wearables/src/component"
   }
 }

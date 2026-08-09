@@ -1,0 +1,162 @@
+---
+title: Synthetic Data
+description: Generate deterministic wearable fixtures through the first-class Synth provider.
+---
+
+The Synthetic provider—**Synth** for short—creates realistic wearable fixtures inside the component. It writes the same normalized connections, data sources, events, time-series points, summaries, and sync history as a live integration.
+
+Use it to build dashboards before a device is connected, make demos repeatable, and exercise product states that are difficult to reproduce with real accounts.
+
+## What Synth generates
+
+- sleep and workout events
+- heart rate, steps, recovery, HRV, and SpO₂ time series
+- activity, sleep, and recovery daily summaries
+- a normal `synthetic` connection and `SynthDevice` data source
+- a completed sync job and connection `lastSyncedAt`
+
+Generated values are plausible UI fixtures. They are **not clinically meaningful data**.
+
+## Enable it explicitly
+
+Synth is off unless you opt in while constructing `WearablesClient`:
+
+```ts
+// convex/wearables.ts
+import { WearablesClient } from "@clipin/convex-wearables";
+import { components } from "./_generated/api";
+
+export const wearables = new WearablesClient(components.wearables, {
+  providers: {
+    synthetic: {
+      enabled: process.env.ENABLE_SYNTHETIC_WEARABLES === "true",
+    },
+  },
+});
+```
+
+Keep this setting disabled in production unless your product intentionally exposes generated data. The client refuses to seed, inspect, or clear Synth data while it is disabled.
+
+## Seed a user
+
+Expose seeding through an authenticated host mutation. Your app is responsible for deciding who can choose the target user.
+
+```ts
+// convex/adminWearables.ts
+import { mutation } from "./_generated/server";
+import { v } from "convex/values";
+import { wearables } from "./wearables";
+
+export const seedWearables = mutation({
+  args: {
+    userId: v.string(),
+    startDate: v.string(),
+    endDate: v.string(),
+  },
+  handler: async (ctx, args) => {
+    // Apply your app's admin or development authorization here.
+    return await wearables.seedSyntheticData(ctx, {
+      ...args,
+      timezone: "Europe/Madrid",
+      profile: "mixed",
+      seed: "dashboard-demo-v1",
+      asOf: Date.now(),
+      replaceExisting: true,
+    });
+  },
+});
+```
+
+The explicit date range can cover up to **31 days** and cannot end after the local calendar day containing `asOf`. If `asOf` is omitted, generation time is used.
+
+## Choose a profile
+
+| Profile | Useful for |
+|---|---|
+| `active` | High-activity dashboards, workouts, and positive trend states |
+| `sedentary` | Below-goal steps, active calories, and sleep; useful for partial-score UI |
+| `recovery` | Lower activity with longer sleep and recovery-oriented data |
+| `mixed` | A deterministic rotation through active, recovery, and sedentary days |
+
+Package versions that include the additive `showcase` profile can also generate polished Monday-to-Sunday demo weeks with four target-complete days, two strong days, and one below-target day.
+
+## Determinism and replacement
+
+The same user, date, profile, and seed inputs generate the same health values. Extending a range does not change earlier calendar days, which makes screenshots and automated product tests stable.
+
+By default, seeding fails when that user already has a Synthetic connection. Pass `replaceExisting: true` to replace it. Convex runs cleanup and regeneration in one mutation, so a failed replacement does not leave a partial fixture set.
+
+Real provider connections are never taken over or deleted. Synth uses its own `provider: "synthetic"` connection and data source.
+
+## Query generated data
+
+There is no separate read API. Existing normalized queries return generated data just like provider data:
+
+```ts
+const workouts = await wearables.getEvents(ctx, {
+  userId,
+  category: "workout",
+  limit: 20,
+});
+
+const heartRate = await wearables.getTimeSeries(ctx, {
+  userId,
+  seriesType: "heart_rate",
+  startDate,
+  endDate,
+});
+
+const activity = await wearables.getDailySummaries(ctx, {
+  userId,
+  provider: "synthetic",
+  category: "activity",
+  startDate: "2026-07-01",
+  endDate: "2026-07-07",
+});
+```
+
+Time-series storage policies apply during generation, including raw retention, rollups, and per-user presets.
+
+## Inspect and clear
+
+```ts
+const status = await wearables.getSyntheticDataStatus(ctx, { userId });
+
+if (status.exists) {
+  console.log(status.startDate, status.endDate, status.counts);
+}
+
+const cleared = await wearables.clearSyntheticData(ctx, { userId });
+```
+
+`getSyntheticDataStatus` reports the generated date range and counts for connections, sources, events, points, rollups, series state, summaries, and sync jobs. `clearSyntheticData` is idempotent and can only select that user's Synthetic rows.
+
+## Direct component access
+
+The component namespace also exposes:
+
+- `components.wearables.synthetic.seed`
+- `components.wearables.synthetic.status`
+- `components.wearables.synthetic.clear`
+
+Direct calls bypass the client's opt-in check. No HTTP endpoint is registered, so keep any host function that calls these methods behind the same authentication and authorization policy.
+
+## Next steps
+
+<Cards>
+  <Card
+    title="Client API"
+    href="/docs/reference/client-api#synthetic-provider"
+    description="See the full public Synth helper surface."
+  />
+  <Card
+    title="Storage Policies"
+    href="/docs/guides/storage-policies"
+    description="Control how generated time-series points are retained and rolled up."
+  />
+  <Card
+    title="Provider Support"
+    href="/docs/reference/provider-support"
+    description="Compare generated, cloud, webhook, and SDK ingestion paths."
+  />
+</Cards>

@@ -1,0 +1,15 @@
+{
+  "title": "Guides",
+  "pages": [
+    "synthetic-data",
+    "storage-policies",
+    "source-aware-reads",
+    "workout-enrichment",
+    "webhooks-and-routes",
+    "live-provider-webhooks",
+    "outgoing-webhooks",
+    "sdk-push",
+    "sync-and-backfill",
+    "data-deletion"
+  ]
+}

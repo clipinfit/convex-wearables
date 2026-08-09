@@ -1,0 +1,182 @@
+---
+title: Client API
+description: Public methods exposed by WearablesClient.
+---
+
+## `WearablesClient`
+
+Instantiate the client once with your component reference and provider credentials:
+
+```ts
+import { WearablesClient } from "@clipin/convex-wearables";
+import { components } from "./_generated/api";
+
+export const wearables = new WearablesClient(components.wearables, {
+  providers: {
+    garmin: {
+      clientId: process.env.GARMIN_CLIENT_ID!,
+      clientSecret: process.env.GARMIN_CLIENT_SECRET!,
+    },
+  },
+});
+```
+
+## Connection management
+
+| Method | Description |
+|---|---|
+| `getConnections(ctx, { userId })` | Get all connections for a user |
+| `getConnection(ctx, { userId, provider })` | Get one provider connection |
+| `getSyncStatus(ctx, { userId })` | Get sync status across providers |
+| `disconnect(ctx, { userId, provider })` | Disconnect a provider |
+
+## Events
+
+| Method | Description |
+|---|---|
+| `getEvents(ctx, { userId, category, startDate?, endDate?, limit?, cursor? })` | Paginated events query |
+| `getEventsWithSources(ctx, { userId, category, provider?, dataSourceId?, ... })` | Paginated events with a normalized provider/writer/device sidecar |
+| `getEvent(ctx, { eventId })` | Get a single event |
+
+## Time series
+
+| Method | Description |
+|---|---|
+| `getTimeSeries(ctx, { userId, seriesType, startDate, endDate, limit? })` | Get time-series points |
+| `getTimeSeriesWithSources(ctx, { userId, seriesType, startDate, endDate, provider?, dataSourceId?, limit?, order? })` | Get policy-aware points with stable source provenance |
+| `getLatestDataPoint(ctx, { userId, seriesType })` | Get the latest value for a metric |
+| `getAvailableSeriesTypes(ctx, { userId })` | List series types with data |
+| `getTimeSeriesPolicyConfiguration(ctx)` | Read default rules, presets, and maintenance settings |
+| `getUserTimeSeriesPolicyPreset(ctx, { userId })` | Get the assigned preset for a user |
+| `getEffectiveTimeSeriesPolicy(ctx, { userId, provider, seriesType })` | Resolve the effective policy for one user/provider/series combination |
+| `replaceTimeSeriesPolicyConfiguration(ctx, { defaultRules, presets?, maintenance? })` | Replace the stored policy configuration |
+| `setUserTimeSeriesPolicyPreset(ctx, { userId, presetKey })` | Assign or clear a preset for a user |
+
+## Summaries
+
+| Method | Description |
+|---|---|
+| `getDailySummaries(ctx, { userId, category, startDate, endDate })` | Get daily summary rows |
+
+## Data sources
+
+| Method | Description |
+|---|---|
+| `getDataSources(ctx, { userId })` | List every provider/writer/device stream for a user |
+| `getProviderDataSources(ctx, { userId, provider })` | List streams for one provider family |
+| `getOrCreateDataSource(ctx, { userId, provider, deviceModel?, source?, deviceType? })` | Get or create a source row |
+
+Source-aware event and point rows contain `dataSourceId`; their response
+envelope returns each matching `WearableDataSource` once. See
+[Source-Aware Reads](/docs/guides/source-aware-reads) for filtering, response
+mapping, canonicalization boundaries, and migration guidance.
+
+## Sync control
+
+| Method | Description |
+|---|---|
+| `getSyncJobs(ctx, { userId, limit? })` | Get recent sync jobs |
+
+## Synthetic provider
+
+| Method | Description |
+|---|---|
+| `isSyntheticProviderEnabled()` | Check whether the host opted in to generated data |
+| `seedSyntheticData(ctx, args)` | Generate a connected, normalized Synthetic data set |
+| `getSyntheticDataStatus(ctx, { userId })` | Inspect its date range and normalized row counts |
+| `clearSyntheticData(ctx, { userId })` | Idempotently remove only the user's Synthetic integration |
+
+See [Synthetic Data](/docs/guides/synthetic-data) for profiles, deterministic seeds, replacement behavior, and a complete host mutation.
+
+## OAuth
+
+| Method | Description |
+|---|---|
+| `generateAuthUrl(ctx, { userId, provider, redirectUri })` | Build an authorization URL |
+| `handleCallback(ctx, { provider, state, code })` | Exchange the OAuth callback code and persist the connection |
+
+## Lifecycle
+
+| Method | Description |
+|---|---|
+| `startProviderDataDeletion(ctx, args)` | Start a durable provider-scoped deletion |
+| `startUserDataDeletion(ctx, args)` | Start a durable whole-user wearable-data deletion |
+| `getDataDeletionOperation(ctx, { operationId })` | Read progress, aggregate counts, and terminal status |
+| `getActiveDataDeletionOperation(ctx, { userId, provider? })` | Find an operation currently fencing ingestion |
+| `retryDataDeletion(ctx, { operationId })` | Resume a failed operation from its Workflow history |
+| `cancelDataDeletion(ctx, { operationId })` | Stop future batches without restoring deleted records |
+| `cleanupDataDeletionOperation(ctx, { operationId })` | Remove a terminal operation and Workflow history |
+| `deregisterProvider(ctx, { userId, provider })` | Attempt provider-side revocation, then disconnect locally |
+| `deleteAllUserData(ctx, { userId })` | Deprecated synchronous compatibility helper |
+
+See [Disconnecting and Deleting Data](/docs/guides/data-deletion) for operation
+semantics, status handling, provider support, retries, and account-deletion
+integration.
+
+## Live provider webhooks
+
+These methods are authorization-agnostic component primitives. Wrap operator
+and tenant authorization in the host application.
+
+| Method | Description |
+|---|---|
+| `configureProviderWebhook(ctx, args)` | Store safe WHOOP/Suunto callback state and Suunto's notification secret |
+| `getProviderWebhookStatus(ctx, { provider })` | Read registration state without returning secrets |
+| `getPolarWebhookStatus(ctx)` | Read the Polar registration state without returning its one-time secret |
+| `listProviderWebhookReceipts(ctx, filters?)` | Page through bounded, payload-redacted receipt metadata |
+| `retryProviderWebhookReceipt(ctx, { receiptId })` | Retry a failed/waiting receipt before payload expiry |
+| `cancelProviderWebhookReceipt(ctx, { receiptId })` | Cancel future processing and redact the payload |
+| `cleanupProviderWebhookReceipts(ctx, { now? })` | Delete one bounded batch of expired receipts |
+| `createPolarWebhook(ctx, args)` | Register Polar and atomically retain its one-time signing secret |
+| `updatePolarWebhook(ctx, args)` | Update the Polar URL or supported event list |
+| `activatePolarWebhook(ctx)` | Reactivate a configured Polar webhook |
+| `deactivatePolarWebhook(ctx)` | Pause Polar delivery remotely and locally |
+| `deletePolarWebhook(ctx)` | Delete the remote Polar registration and clear its secret |
+| `reconcilePolarWebhookRegistration(ctx)` | Compare remote and local Polar state |
+
+See [Live Provider Webhooks](/docs/guides/live-provider-webhooks) for route
+mounting, signatures, event coverage, reconciliation, retention, and rollback.
+
+## Outgoing events and self-service webhooks
+
+These primitives require authenticated host wrappers. The host establishes
+tenant/user authorization; the component enforces the persisted scope.
+
+| Method | Description |
+|---|---|
+| `configureOutgoingWebhooks(ctx, args)` | Opt into capture, callbacks, external delivery, payload modes, and limits |
+| `getOutgoingWebhookStatus(ctx)` | Read safe aggregate configuration and queue health |
+| `getOutgoingWebhookRuntimeStatus(ctx)` | Verify encryption-key readiness and the native DNS-pinned delivery runtime |
+| `setWebhookUserTenant(ctx, args)` | Persist a host-authorized user-to-tenant mapping |
+| `createWebhookEndpoint(ctx, args)` | Validate HTTPS/DNS, create a pending endpoint, and return its secret once |
+| `verifyWebhookEndpoint(ctx, args)` | Send a signed challenge and activate on 2xx |
+| `updateWebhookEndpointUrl(ctx, args)` | Revalidate a replacement URL and require verification again |
+| `updateWebhookEndpoint(ctx, args)` | Change description, exact filters, or allowed payload mode |
+| `listWebhookEndpoints` / `getWebhookEndpoint` | Read tenant-scoped redacted endpoint state |
+| `pauseWebhookEndpoint` / `resumeWebhookEndpoint` / `deleteWebhookEndpoint` | Manage endpoint state and queued deliveries |
+| `rotateWebhookSecret(ctx, args)` | Return a new secret once with a bounded overlap window |
+| `rewrapWebhookEndpointSecret(ctx, args)` | Re-encrypt one endpoint during deployment master-key rotation |
+| `sendWebhookTest(ctx, args)` | Enqueue a normal signed test delivery |
+| `listWearablesEventTypes(ctx)` | Read the versioned exact catalog and save-time groups |
+| `listWebhookEvents` / `listWebhookDeliveries` / `listWebhookAttempts` | Read bounded operational history without payloads or secrets |
+| `retryWebhookDelivery(ctx, args)` | Retry one retained terminal delivery with the same event body |
+| `recoverFailedWebhookDeliveries(ctx, args)` | Start a durable bounded endpoint recovery operation |
+| `replayMissingWebhookEvents(ctx, args)` | Start a durable replay of retained matching events |
+| `getWebhookRecoveryOperation(ctx, args)` | Read recovery/replay progress |
+
+See [Outgoing Events and Self-Service Webhooks](/docs/guides/outgoing-webhooks)
+for architecture, authorization, receiver verification, retry behavior,
+privacy, deletion, and rollout.
+
+## Helpers
+
+| Method | Description |
+|---|---|
+| `getProviderCredentials(provider)` | Read configured credentials for one provider |
+| `getConfiguredProviders()` | List configured providers |
+| `getSdkSyncPath(config?)` | Get the configured SDK push path |
+| `getSdkSyncUrl(baseUrl, config?)` | Build the full SDK push URL |
+| `getSdkSyncV2Path(config?)` | Get the configured resilient SDK v2 path |
+| `getSdkSyncV2Url(baseUrl, config?)` | Build the full resilient SDK v2 URL |
+
+For retention and rollup behavior, see [Storage Policies](/docs/guides/storage-policies).

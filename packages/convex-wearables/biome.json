@@ -3,10 +3,12 @@
   "vcs": {
     "enabled": true,
     "clientKind": "git",
-    "useIgnoreFile": true
+    "root": "../..",
+    "useIgnoreFile": false
   },
   "files": {
-    "ignoreUnknown": true
+    "ignoreUnknown": true,
+    "includes": ["**", "!node_modules", "!dist", "!coverage"]
   },
   "formatter": {
     "enabled": true,

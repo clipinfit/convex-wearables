@@ -6,11 +6,6 @@ A [Convex component](https://docs.convex.dev/components) for wearable device int
 
 Built as a drop-in module: install the component, pass your provider credentials, and start querying workouts, sleep sessions, heart rate, and 88 pre-defined health metrics — all in TypeScript, no backend glue code required.
 
-This repository is an npm workspace. The publishable component is in
-[`packages/convex-wearables`](./packages/convex-wearables), while the Fumadocs
-site is in [`apps/web`](./apps/web). The package keeps its conventional
-`src/component` path inside its workspace.
-
 ## Features
 
 - **OAuth 2.0 flows** with PKCE support — authorize users, exchange tokens, auto-refresh
@@ -767,7 +762,7 @@ This is same-provider replay protection, not cross-provider reconciliation. A
 Garmin workout and a copy observed through Strava have different provider
 identities and may both be stored. Host applications own canonical-source and
 cross-provider duplicate policy; see
-[Strava integration boundaries](./docs/strava-integration-boundaries.md).
+[Strava integration boundaries](https://github.com/clipinfit/convex-wearables/blob/main/docs/strava-integration-boundaries.md).
 
 Data points are deduplicated by `dataSourceId` + `seriesType` + `recordedAt`.
 
@@ -1413,10 +1408,10 @@ client helpers.
 npm test
 
 # Run tests in watch mode
-npm run test:watch --workspace @clipin/convex-wearables
+npm run test:watch
 
-# Run a specific package test file
-npm exec --workspace @clipin/convex-wearables -- vitest run src/component/events.test.ts
+# Run a specific test file
+npx vitest run src/component/events.test.ts
 ```
 
 Coverage includes:
@@ -1443,19 +1438,36 @@ For high-volume time-series data (e.g., per-second heart rate), consider using [
 
 ```
 convex-wearables/
-├── apps/
-│   └── web/                  # Fumadocs documentation site
-├── packages/
-│   └── convex-wearables/     # Published @clipin/convex-wearables package
-│       ├── src/
-│       │   ├── client/       # Host-side client and shared types
-│       │   └── component/    # Convex component, providers, and tests
-│       ├── package.json
-│       └── tsconfig.json
-├── docs/                     # Plans and design documents
+├── src/
+│   ├── client/
+│   │   ├── index.ts          # WearablesClient and HTTP route helper exports
+│   │   └── types.ts          # Shared types and SERIES_TYPES
+│   └── component/
+│       ├── schema.ts         # Convex schema
+│       ├── connections.ts    # Connection lifecycle queries and mutations
+│       ├── events.ts         # Workout and sleep storage/query APIs
+│       ├── dataPoints.ts     # Time-series storage/query APIs
+│       ├── dataSources.ts    # Provider/device source tracking
+│       ├── summaries.ts      # Daily aggregates
+│       ├── syncJobs.ts       # Sync job tracking
+│       ├── syncWorkflow.ts   # Durable per-connection sync orchestration
+│       ├── garminWebhooks.ts # Garmin push ingestion
+│       ├── sdkPush.ts        # Normalized mobile SDK ingestion
+│       ├── garminBackfill.ts # Garmin historical backfill workflow
+│       ├── httpHandlers.ts   # Standalone HTTP action handlers
+│       ├── oauthActions.ts   # OAuth URL generation and callback handling
+│       ├── providerSettings.ts # Stored provider credentials
+│       ├── lifecycle.ts      # GDPR user data deletion
+│       ├── convex.config.ts  # Component config
+│       ├── providers/
+│       │   ├── types.ts      # Provider interfaces
+│       │   ├── oauth.ts      # Shared OAuth utilities
+│       │   ├── garmin.ts     # Garmin adapter and normalization
+│       │   ├── strava.ts     # Strava adapter and normalization
+│       │   └── registry.ts   # Provider registry
+│       └── *.test.ts         # Component and adapter tests
 ├── package.json
-├── package-lock.json
-├── turbo.json
+├── tsconfig.json
 └── README.md
 ```
 

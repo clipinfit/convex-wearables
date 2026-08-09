@@ -1,0 +1,231 @@
+---
+title: Live Provider Webhooks
+description: Configure secure, durable WHOOP v2, Polar, and Suunto inbound callbacks.
+---
+
+Live provider webhooks reduce the delay between a provider recording data and
+that data appearing in Convex. They are signals, not a complete history:
+scheduled pull sync remains the reconciliation path for missed or reordered
+notifications.
+
+This feature is different from outgoing consumer webhooks. Incoming callbacks
+bring wearable data into the component. They do not notify your application or
+your users' third-party endpoints after data changes.
+
+## How durable acknowledgement works
+
+For each request, the mounted route:
+
+1. reads a bounded raw body;
+2. verifies the provider HMAC over those exact bytes;
+3. validates the small notification envelope;
+4. transactionally inserts or deduplicates a receipt and starts a dedicated
+   Workflow; and
+5. returns HTTP 200.
+
+Provider fetches, normalization, writes, exact deletes, and local retries run
+after acknowledgement. The provider-webhook Workflow has its own Workpool with
+maximum parallelism 5, four action attempts, a one-second initial backoff, and
+factor-two exponential backoff. Callback bursts cannot consume the component's
+pull-sync and deletion workflow budget.
+
+Delivery is at least once. Duplicate receipts do not create duplicate
+workflows, and normalized writes use the same external identities as pull
+sync. Strict notification ordering is not promised.
+
+## Mount selected routes
+
+No route is added during package installation. Add only the provider keys you
+intend to configure:
+
+```ts
+// convex/http.ts
+import { registerRoutes } from "@clipin/convex-wearables";
+import { httpRouter } from "convex/server";
+import { components } from "./_generated/api";
+
+const http = httpRouter();
+
+registerRoutes(http, components.wearables, {
+  providerWebhooks: {
+    whoop: { path: "/wearables/webhooks/whoop/v2" },
+    polar: { path: "/wearables/webhooks/polar" },
+    suunto: { path: "/wearables/webhooks/suunto" },
+  },
+});
+
+export default http;
+```
+
+The default body limit is 512,000 bytes. You may lower it or raise it up to the
+component's 1,000,000-byte cap:
+
+```ts
+providerWebhooks: {
+  maxBodyBytes: 256_000,
+  whoop: {},
+}
+```
+
+Malformed JSON returns 400, invalid signatures return 401/403, oversized bodies
+return 413, and failure to durably accept returns 503 so the provider can retry.
+Responses never reveal whether a provider user is connected.
+
+## WHOOP v2
+
+WHOOP is notify-then-fetch. The component supports:
+
+- `workout.updated` and `workout.deleted`
+- `sleep.updated` and `sleep.deleted`
+- `recovery.updated` and `recovery.deleted`
+
+Create is represented by `updated`. The component accepts only the v2 resource
+model, validates the signature timestamp within a five-minute replay window,
+and uses `trace_id` for receipt deduplication when present. Updates fetch only
+the indicated v2 resource and reuse the pull normalizers. Deletes are scoped to
+the resolved connection, provider, resource category, and external ID.
+
+WHOOP signs `timestamp + rawBody` with the application's OAuth client secret.
+Configure the callback URL in the WHOOP developer dashboard, keep that client
+secret in normal provider configuration, and record safe registration state:
+
+```ts
+await wearables.configureProviderWebhook(ctx, {
+  provider: "whoop",
+  targetUrl: `${process.env.CONVEX_SITE_URL}/wearables/webhooks/whoop/v2`,
+  eventTypes: [
+    "workout.updated",
+    "workout.deleted",
+    "sleep.updated",
+    "sleep.deleted",
+    "recovery.updated",
+    "recovery.deleted",
+  ],
+});
+```
+
+WHOOP can duplicate or miss callbacks. Keep its periodic pull enabled.
+
+## Polar AccessLink
+
+Polar permits one application webhook per API client and returns its signing
+secret only once. Create it through an operator-authorized action after the
+route is deployed:
+
+```ts
+await wearables.createPolarWebhook(ctx, {
+  targetUrl: `${process.env.CONVEX_SITE_URL}/wearables/webhooks/polar`,
+  eventTypes: ["EXERCISE"],
+});
+```
+
+During creation Polar sends an unsigned exact `PING` before it returns the new
+secret. The route accepts only that narrow handshake without a signature. The
+creation action then stores the remote ID and one-time secret together.
+
+Version 0.11 enables only `EXERCISE`, because that event has a complete targeted
+fetch and normalization path. Requests to subscribe to other Polar event types
+fail rather than silently discarding data.
+
+Operator lifecycle methods are:
+
+- `updatePolarWebhook`
+- `activatePolarWebhook`
+- `deactivatePolarWebhook`
+- `deletePolarWebhook`
+- `reconcilePolarWebhookRegistration`
+
+If reconciliation returns `requiresRecreation: true`, the remote webhook exists
+but its one-time local signing secret is unavailable. Delete the remote webhook
+and recreate it. Polar cannot reveal the old secret.
+
+## Suunto
+
+Configure the HTTPS callback URL and notification secret in Suunto API Zone,
+then store the same secret through an operator-authorized mutation:
+
+```ts
+await wearables.configureProviderWebhook(ctx, {
+  provider: "suunto",
+  targetUrl: `${process.env.CONVEX_SITE_URL}/wearables/webhooks/suunto`,
+  webhookSecret: process.env.SUUNTO_WEBHOOK_SECRET!,
+  eventTypes: [
+    "WORKOUT_CREATED",
+    "SUUNTO_247_SLEEP_CREATED",
+    "SUUNTO_247_ACTIVITY_CREATED",
+    "SUUNTO_247_RECOVERY_CREATED",
+  ],
+});
+```
+
+`WORKOUT_CREATED` triggers a targeted canonical workout fetch using the stored
+subscription key. Sleep, activity, and recovery notifications normalize their
+inline samples. A notification may contain at most 5,000 samples; malformed
+samples that cannot be normalized are skipped while valid samples continue.
+`ROUTE_CREATED` is authenticated and acknowledged but ignored until the
+component has a provider-neutral route model.
+
+Once a valid Suunto request is durably accepted, downstream failure is retried
+locally rather than amplified into provider retries and its application-wide
+circuit breaker.
+
+## Status, retry, and cancellation
+
+The component does not decide who is an operator. Wrap these methods with host
+authorization before exposing them:
+
+```ts
+const registration = await wearables.getProviderWebhookStatus(ctx, {
+  provider: "suunto",
+});
+
+const failures = await wearables.listProviderWebhookReceipts(ctx, {
+  provider: "suunto",
+  status: "failed",
+  limit: 20,
+});
+
+await wearables.retryProviderWebhookReceipt(ctx, { receiptId });
+await wearables.cancelProviderWebhookReceipt(ctx, { receiptId });
+```
+
+Public status includes `secretConfigured` but never returns the secret. Receipt
+queries never return `payloadJson`. Manual retry works only while a failed or
+waiting receipt still has its bounded payload.
+
+## Retention and deletion
+
+- Completed and ignored payloads are redacted immediately.
+- Failed receipt payloads and metadata expire within seven days.
+- A notification racing OAuth completion waits for a connection for at most 15
+  minutes; its payload then expires.
+- Automatic scheduled cleanup deletes expired receipts. Operators may also run
+  `cleanupProviderWebhookReceipts` for bounded maintenance.
+- Provider or whole-user deletion cancels matching workflows, redacts and
+  removes resolved receipts, and activates the normal ingestion fence before
+  connection data disappears.
+
+Raw bodies, signing secrets, tokens, and health samples are not written to
+public status or component logs.
+
+## Troubleshooting
+
+| Symptom | Check |
+|---|---|
+| 401/403 callback | Header name, exact secret, raw-body proxy transformations, and WHOOP timestamp skew |
+| 413 callback | Route `maxBodyBytes`; for Suunto also verify the 5,000-sample limit |
+| 503 callback | Component schema/functions deployed and durable Workflow child installed |
+| `waiting_for_connection` | Provider user identity on the OAuth connection; wait for the bounded OAuth race retry |
+| `failed` receipt | Provider credentials/token status and provider API availability; retry before payload expiry |
+| Polar `signing_secret_missing_recreate_required` | Delete the remote registration, then create it again to capture a new one-time secret |
+| Missing recent records | Confirm pull reconciliation is still scheduled; provider delivery is not a complete history |
+
+## Upgrade and rollback
+
+Version 0.11 is additive: two tables, one connection index, public methods and
+types, and a dedicated Workflow child. No existing row rewrite is required.
+Update the package and deploy Convex before mounting routes.
+
+For rollback, disable or delete the remote callback first, keep pull sync
+enabled, allow accepted receipts to finish or cancel them, then unmount the
+route. Leave additive tables deployed until bounded cleanup has completed.

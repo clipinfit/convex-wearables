@@ -1,0 +1,142 @@
+---
+title: Webhooks and Routes
+description: Mount Garmin, WHOOP, Polar, Suunto, Strava, and SDK ingestion routes.
+---
+
+## Garmin routes
+
+Register Garmin routes directly from the package:
+
+```ts
+// convex/http.ts
+import { httpRouter } from "convex/server";
+import { registerRoutes } from "@clipin/convex-wearables";
+import { components } from "./_generated/api";
+
+const http = httpRouter();
+
+registerRoutes(http, components.wearables, {
+  garmin: {
+    clientId: process.env.GARMIN_CLIENT_ID,
+    clientSecret: process.env.GARMIN_CLIENT_SECRET,
+    oauthCallbackPath: "/oauth/garmin/callback",
+    successRedirectUrl: process.env.NEXT_PUBLIC_APP_URL,
+    webhookPath: "/webhooks/garmin/push",
+    healthPath: "/webhooks/garmin/health",
+    activityFiles: { enabled: true },
+  },
+});
+
+export default http;
+```
+
+The Garmin route helper:
+
+- handles the Garmin OAuth callback redirect
+- validates the `garmin-client-id` header
+- forwards push payloads into the component ingestion path
+- exposes an optional health-check route
+- optionally processes Garmin FIT Activity Files asynchronously
+
+Activity Files are disabled by default. Enabling them adds normalized workout
+segments, sets, zones, and FIT-only samples without retaining the raw file. See
+[Workout Enrichment](/docs/guides/workout-enrichment) for security controls,
+retention behavior, and upgrade guidance.
+
+If you customize `oauthCallbackPath`, the redirect URI used in your OAuth flow must match it exactly.
+
+## WHOOP, Polar, and Suunto
+
+Version 0.11 adds opt-in signed provider callbacks through the same route
+helper. No route is mounted unless its provider key is present:
+
+```ts
+registerRoutes(http, components.wearables, {
+  providerWebhooks: {
+    whoop: {},
+    polar: {},
+    suunto: {},
+  },
+});
+```
+
+These routes verify the exact raw body and durably accept a deduplicated receipt
+before acknowledging. Provider API work and health-data writes happen in a
+dedicated Workflow after the response. Continue with [Live Provider
+Webhooks](/docs/guides/live-provider-webhooks) for provider secrets,
+registration, event coverage, status, retry, retention, and rollback.
+
+## Strava webhooks
+
+The package exports standalone HTTP handlers for Strava's webhook API:
+
+| Endpoint | Handler | Purpose |
+|---|---|---|
+| `GET /webhooks/strava` | `stravaWebhookVerify` | Subscription verification |
+| `POST /webhooks/strava` | `stravaWebhookEvent` | Activity create/update/delete events |
+
+Example:
+
+```ts
+// convex/http.ts
+import { httpRouter } from "convex/server";
+import { stravaWebhookEvent, stravaWebhookVerify } from "@clipin/convex-wearables";
+
+const http = httpRouter();
+
+http.route({
+  path: "/webhooks/strava",
+  method: "GET",
+  handler: stravaWebhookVerify,
+});
+
+http.route({
+  path: "/webhooks/strava",
+  method: "POST",
+  handler: stravaWebhookEvent,
+});
+
+export default http;
+```
+
+## SDK ingestion route
+
+For Apple Health, Samsung Health, and Google Health Connect, use the SDK route helper:
+
+```ts
+// convex/http.ts
+import { httpRouter } from "convex/server";
+import {
+  getSdkSyncUrl,
+  getSdkSyncV2Url,
+  registerRoutes,
+} from "@clipin/convex-wearables";
+import { components } from "./_generated/api";
+
+const http = httpRouter();
+
+const routeConfig = {
+  sdk: {
+    syncPath: "/sdk/sync",
+    syncV2Path: "/sdk/sync/v2",
+    authToken: process.env.WEARABLES_SDK_AUTH_TOKEN,
+  },
+};
+
+registerRoutes(http, components.wearables, routeConfig);
+
+const sdkSyncUrl = getSdkSyncUrl(process.env.CONVEX_SITE_URL!, routeConfig);
+const sdkSyncV2Url = getSdkSyncV2Url(
+  process.env.CONVEX_SITE_URL!,
+  routeConfig,
+);
+
+export default http;
+```
+
+The v1 route keeps strict legacy validation. The v2 route accepts a versioned
+request envelope, supports partial row acceptance, and returns structured,
+privacy-safe rejection details. Set either path to `false` to disable that
+version independently.
+
+If you are building a mobile integration, continue with [SDK Push](/docs/guides/sdk-push).

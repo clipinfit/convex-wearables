@@ -1,0 +1,258 @@
+---
+title: Storage Policies
+description: Configure time-series retention, rollups, presets, and per-user policy selection.
+---
+
+## Default behavior
+
+If you configure nothing, the built-in fallback is a single raw tier from age `0` to `null`.
+
+That means:
+
+- all points are stored as raw rows
+- original granularity is preserved
+- retention is effectively infinite
+- no rollups are created
+- nothing is deleted by policy
+
+## How policies are applied
+
+Policies are evaluated in this order:
+
+1. matching rule inside the user's assigned preset, if the user has one
+2. exact `provider + seriesType` default rule
+3. `seriesType` default rule
+4. `provider` default rule
+5. global default rule
+6. built-in raw-forever fallback
+
+The same policy logic is used for:
+
+- manual syncs
+- cron syncs
+- Garmin webhook ingestion
+- SDK/mobile push ingestion
+
+## Configure the policy
+
+```ts
+await wearables.replaceTimeSeriesPolicyConfiguration(ctx, {
+  defaultRules: [
+    {
+      tiers: [{ kind: "raw", fromAge: "0m", toAge: null }],
+    },
+    {
+      provider: "garmin",
+      seriesType: "heart_rate",
+      tiers: [
+        { kind: "raw", fromAge: "0m", toAge: "24h" },
+        { kind: "rollup", fromAge: "24h", toAge: "7d", bucket: "30m" },
+        { kind: "rollup", fromAge: "7d", toAge: null, bucket: "3h" },
+      ],
+    },
+  ],
+  presets: [
+    {
+      key: "pro",
+      rules: [
+        {
+          provider: "garmin",
+          seriesType: "heart_rate",
+          tiers: [
+            { kind: "raw", fromAge: "0m", toAge: "7d" },
+            { kind: "rollup", fromAge: "7d", toAge: null, bucket: "1h" },
+          ],
+        },
+      ],
+    },
+  ],
+  maintenance: {
+    enabled: true,
+    interval: "1h",
+  },
+});
+```
+
+This example keeps a raw-everything fallback for any provider or metric that does not match a more specific rule. It then adds a Garmin-specific heart-rate rule that keeps raw samples for `24h`, compacts older data into `30m` rollups until `7d`, and keeps `3h` rollups after that.
+
+It also defines a `pro` preset. Users assigned to that preset get a more generous Garmin heart-rate policy: raw samples for `7d`, then `1h` rollups forever. The hourly maintenance loop is what keeps stored rows aligned with those tiers over time.
+
+## Assign a preset to a user
+
+```ts
+await wearables.setUserTimeSeriesPolicyPreset(ctx, {
+  userId: "user-123",
+  presetKey: "pro",
+});
+```
+
+In this example, assigning `pro` to `user-123` gives only that user the longer Garmin heart-rate raw window. Other users continue using the default rules unless they are assigned a different preset.
+
+Clear a preset assignment with:
+
+```ts
+await wearables.setUserTimeSeriesPolicyPreset(ctx, {
+  userId: "user-123",
+  presetKey: null,
+});
+```
+
+## Configuration reference
+
+### Top-level fields
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `defaultRules` | `TimeSeriesPolicyRuleInput[]` | Yes | Deployment-wide policy rules. |
+| `presets` | `TimeSeriesPolicyPresetInput[]` | No | Named rule sets that can be assigned per user. |
+| `maintenance.enabled` | `boolean` | No | Enables the internal maintenance loop. Defaults to `true`. |
+| `maintenance.interval` | `string \| number` | No | Frequency for the maintenance loop. Accepts compact durations or milliseconds. |
+
+### Rule fields
+
+| Field | Type | Required | Meaning |
+|---|---|---|---|
+| `provider` | `ProviderName` | No | Limit the rule to one provider. Omit for all providers. |
+| `seriesType` | `SeriesType \| string` | No | Limit the rule to one metric. Omit for all metrics in scope. |
+| `tiers` | `TimeSeriesTierInput[]` | Yes | Ordered, contiguous age tiers. |
+
+### Valid `provider` values
+
+- `garmin`
+- `suunto`
+- `polar`
+- `whoop`
+- `strava`
+- `apple`
+- `samsung`
+- `google`
+
+`provider` is not Garmin-only. The policy resolver accepts any `ProviderName`, and the same storage-policy engine is used for every source that writes time-series rows.
+
+In practice today, policies actively affect:
+
+- `garmin`
+- `whoop`
+- `suunto`
+- `apple`
+- `samsung`
+- `google`
+
+Rules targeting `strava` or `polar` are still valid, but they do not currently change stored time-series behavior because those integrations do not currently write `dataPoints` rows.
+
+### `seriesType`
+
+Use any supported metric key from [Series Types](/docs/reference/series-types), for example:
+
+- `heart_rate`
+- `resting_heart_rate`
+- `oxygen_saturation`
+- `steps`
+- `weight`
+- `respiratory_rate`
+- `garmin_stress_level`
+
+### Tier fields
+
+| Field | Type | Applies to | Meaning |
+|---|---|---|---|
+| `kind` | `"raw" \| "rollup"` | all tiers | Whether data is stored as original rows or as bucketed rollups. |
+| `fromAge` | `string \| number` | all tiers | Lower age boundary. `0m` means newest data. |
+| `toAge` | `string \| number \| null` | all tiers | Upper age boundary. `null` means open-ended. |
+| `bucket` | `string \| number` | rollup tiers | Bucket size. Must normalize to a whole number of minutes. |
+| `aggregations` | `("avg" \| "min" \| "max" \| "last" \| "count")[]` | rollup tiers | Which summary values to keep. Defaults to all five. |
+
+### Duration values
+
+Duration fields accept:
+
+- compact strings such as `500ms`, `30s`, `15m`, `24h`, `7d`, `2w`
+- non-negative numbers interpreted as milliseconds
+
+### Validation rules
+
+The implementation enforces:
+
+- the first tier must start at age `0`
+- tiers must be contiguous without gaps or overlap
+- open-ended tiers must be last
+- only one raw tier is allowed per rule
+- rollup buckets must be positive whole-minute durations
+
+If data becomes older than the last tier, maintenance deletes it.
+
+## Aggregations
+
+| Aggregation | Meaning |
+|---|---|
+| `avg` | Arithmetic mean of values in the bucket |
+| `min` | Lowest value in the bucket |
+| `max` | Highest value in the bucket |
+| `last` | Most recent value in the bucket |
+| `count` | Number of samples in the bucket |
+
+For rollup-backed reads:
+
+- the response always includes `value`
+- `value` is chosen from the configured aggregations with this priority: `avg`, then `last`, then `max`, then `min`, then `count`
+
+So if you configure:
+
+```ts
+aggregations: ["last"];
+```
+
+then `value` for the rollup point will be the bucket's `last` value.
+
+## Maintenance behavior
+
+Scheduled maintenance is internal to the component and enabled by default.
+
+It is responsible for:
+
+- compacting raw rows into rollups when they age out of a raw tier
+- compacting finer rollups into coarser rollups when an older tier uses larger buckets
+- deleting data older than the final tier
+
+If you disable maintenance, new writes still go to the correct tier for their current age, but older already-stored data is no longer guaranteed to migrate or delete on schedule.
+
+## Useful patterns
+
+Keep raw forever:
+
+```ts
+{
+  tiers: [{ kind: "raw", fromAge: "0m", toAge: null }],
+}
+```
+
+Keep raw 24h, then 30-minute rollups until day 7, then delete:
+
+```ts
+{
+  provider: "garmin",
+  seriesType: "heart_rate",
+  tiers: [
+    { kind: "raw", fromAge: "0m", toAge: "24h" },
+    { kind: "rollup", fromAge: "24h", toAge: "7d", bucket: "30m" },
+  ],
+}
+```
+
+Store rollups only, never raw:
+
+```ts
+{
+  provider: "garmin",
+  seriesType: "oxygen_saturation",
+  tiers: [
+    {
+      kind: "rollup",
+      fromAge: "0m",
+      toAge: null,
+      bucket: "5m",
+      aggregations: ["avg", "last", "count"],
+    },
+  ],
+}
+```

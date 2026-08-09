@@ -1,6 +1,16 @@
 node_modules/
 dist/
+.next/
+.source/
+.turbo/
+coverage/
 .env
 .env.local
+.env*.local
+!.env.example
 *.tsbuildinfo
+next-env.d.ts
+npm-debug.log*
+*.pem
 local
+.vercel/

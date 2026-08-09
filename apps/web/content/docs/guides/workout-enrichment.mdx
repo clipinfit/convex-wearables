@@ -1,0 +1,107 @@
+---
+title: Workout Enrichment
+description: Store and query provider-neutral workout samples, segments, sets, and zones.
+---
+
+Workout enrichment keeps the stable workout summary in `events` while storing
+deeper, potentially repeated detail separately. This avoids unbounded event
+documents and gives every provider the same public representation.
+
+## What is stored
+
+- `activityDetails` and FIT record samples use the normal `dataPoints` store.
+- Laps, splits, swim lengths, and strength sets use `workoutSegments`.
+- Heart-rate and power time-in-zone use `workoutZones`.
+- Garmin callback URLs use `garminActivityFileJobs` temporarily and are scrubbed
+  after use, terminal failure, or expiry.
+
+Summary fields remain authoritative. A malformed or unavailable enrichment
+payload does not remove the workout summary.
+
+## Enable Garmin Activity Files
+
+Activity File downloads are disabled by default. Enable them on the standard
+Garmin route after the Garmin application has Activity Files access:
+
+```ts
+registerRoutes(http, components.wearables, {
+  garmin: {
+    clientId: process.env.GARMIN_CLIENT_ID,
+    clientSecret: process.env.GARMIN_CLIENT_SECRET,
+    activityFiles: {
+      enabled: true,
+      maxBytes: 20 * 1024 * 1024,
+    },
+  },
+});
+```
+
+Downloads require HTTPS, reject redirects, time out after 30 seconds, and allow
+only `apis.garmin.com` and `connectapi.garmin.com` by default. If Garmin assigns
+your application another callback host, add that exact hostname:
+
+```ts
+activityFiles: {
+  enabled: true,
+  allowedHosts: ["apis.garmin.com", "your-documented-host.example"],
+}
+```
+
+Avoid wildcard hosts. The callback URL is a short-lived secret. Raw FIT bytes
+are parsed in memory and are not retained by the component.
+
+## Read enrichment
+
+```ts
+export const getWorkout = query({
+  args: { eventId: v.string() },
+  handler: async (ctx, args) => {
+    return await wearables.getWorkoutEnrichment(ctx, {
+      eventId: args.eventId,
+    });
+  },
+});
+```
+
+The result contains the summary `event`, ordered segment rows, and zone rows.
+Older or non-enriched workouts return empty arrays. Read workout samples with
+`getTimeSeries` over the workout's start/end range.
+
+## Sample precedence and retention
+
+Garmin `activityDetails` is preferred for series it supplies. When the matching
+FIT file is parsed, those series are skipped and only additional FIT-only
+series are written. This prevents duplicate heart-rate, speed, cadence, power,
+elevation, GPS, and temperature streams for the same workout.
+
+Workout samples use the same time-series storage policy as all other samples.
+Configure raw and rollup tiers before enabling dense ingestion if row growth is
+a concern. Deleting the provider or user deletes samples, enrichment rows, and
+ephemeral file jobs through the durable deletion workflow.
+
+## Custom provider enrichment
+
+Consumers implementing another provider or parser can use
+`upsertWorkoutEnrichment`. The operation replaces all segment and zone rows for
+the event, making replay deterministic:
+
+```ts
+await wearables.upsertWorkoutEnrichment(ctx, {
+  eventId,
+  userId,
+  provider: "suunto",
+  segments: [{ kind: "lap", index: 0, elapsedSeconds: 300 }],
+  zones: [{ kind: "heart_rate", zone: 1, seconds: 120, upperBound: 140 }],
+});
+```
+
+Cross-provider activity deduplication remains a consumer concern. The component
+stores what each connected provider delivers and does not decide whether a
+Garmin workout mirrored through Strava is the canonical presentation.
+
+## Upgrade behavior
+
+The `0.10.0` schema additions are backward compatible. Update the package and
+deploy Convex; no stored-row rewrite is required. Historical workouts are not
+automatically enriched. Garmin must deliver a new notification, or the consumer
+must explicitly request a supported backfill.

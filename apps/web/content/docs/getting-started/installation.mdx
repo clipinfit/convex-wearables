@@ -1,0 +1,97 @@
+---
+title: Installation
+description: Install the component, register it in Convex, and create your shared client.
+---
+
+## Install the package
+
+```bash
+npm install @clipin/convex-wearables convex
+```
+
+`convex` is a peer dependency and should be `>= 1.17.0`.
+
+## Register the component
+
+```ts
+// convex/convex.config.ts
+import { defineApp } from "convex/server";
+import wearables from "@clipin/convex-wearables/convex.config";
+
+const app = defineApp();
+app.use(wearables);
+
+export default app;
+```
+
+## Create a shared client
+
+```ts
+// convex/wearables.ts
+import { WearablesClient } from "@clipin/convex-wearables";
+import { components } from "./_generated/api";
+
+export const wearables = new WearablesClient(components.wearables, {
+  providers: {
+    strava: {
+      clientId: process.env.STRAVA_CLIENT_ID!,
+      clientSecret: process.env.STRAVA_CLIENT_SECRET!,
+    },
+    garmin: {
+      clientId: process.env.GARMIN_CLIENT_ID!,
+      clientSecret: process.env.GARMIN_CLIENT_SECRET!,
+    },
+    synthetic: {
+      enabled: process.env.ENABLE_SYNTHETIC_WEARABLES === "true",
+    },
+  },
+});
+```
+
+## Provider names
+
+The component recognizes these provider keys:
+
+- `garmin`
+- `suunto`
+- `polar`
+- `whoop`
+- `strava`
+- `apple`
+- `samsung`
+- `google`
+- `synthetic`
+
+In practice today:
+
+- Garmin, Strava, Whoop, Polar, and Suunto use OAuth-based cloud integrations
+- Apple, Samsung, and Google are supported through normalized SDK/mobile pushes
+- Synthetic is an explicitly enabled local generator with no external credentials
+- Time-series storage policies matter today for Garmin, Whoop, Suunto, Apple, Samsung, and Google
+
+See [Provider Support](/docs/reference/provider-support) for the current matrix.
+
+## What to do next
+
+<Cards>
+  <Card
+    title="Quickstart"
+    href="/docs/getting-started/quickstart"
+    description="Start querying workouts, heart rate, and summaries from your Convex functions."
+  />
+  <Card
+    title="Webhooks and Routes"
+    href="/docs/guides/webhooks-and-routes"
+    description="Mount Garmin and Strava routes, and expose the SDK ingestion endpoint."
+  />
+  <Card
+    title="Synthetic Data"
+    href="/docs/guides/synthetic-data"
+    description="Generate deterministic fixtures before connecting a real device."
+  />
+  <Card
+    title="Storage Policies"
+    href="/docs/guides/storage-policies"
+    description="Decide how much time-series detail to keep and for how long."
+  />
+</Cards>

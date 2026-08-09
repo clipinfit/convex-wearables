@@ -1,0 +1,97 @@
+---
+title: Quickstart
+description: Use the client in your queries and mutations to read wearable data quickly.
+---
+
+## Query workouts
+
+```ts
+// convex/workouts.ts
+import { query } from "./_generated/server";
+import { v } from "convex/values";
+import { wearables } from "./wearables";
+
+export const listWorkouts = query({
+  args: {
+    userId: v.string(),
+    cursor: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    return await wearables.getEvents(ctx, {
+      userId: args.userId,
+      category: "workout",
+      limit: 20,
+      cursor: args.cursor,
+    });
+  },
+});
+```
+
+## Query heart-rate time series
+
+```ts
+// convex/heartRate.ts
+import { query } from "./_generated/server";
+import { v } from "convex/values";
+import { wearables } from "./wearables";
+
+export const getHeartRate = query({
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    return await wearables.getTimeSeries(ctx, {
+      userId: args.userId,
+      seriesType: "heart_rate",
+      startDate: now - 24 * 60 * 60 * 1000,
+      endDate: now,
+    });
+  },
+});
+```
+
+## Query daily summaries
+
+```ts
+// convex/summaries.ts
+import { query } from "./_generated/server";
+import { v } from "convex/values";
+import { wearables } from "./wearables";
+
+export const getWeeklySummary = query({
+  args: { userId: v.string() },
+  handler: async (ctx, args) => {
+    return await wearables.getDailySummaries(ctx, {
+      userId: args.userId,
+      category: "activity",
+      startDate: "2026-03-09",
+      endDate: "2026-03-15",
+    });
+  },
+});
+```
+
+## Disconnect a provider
+
+```ts
+// convex/disconnect.ts
+import { mutation } from "./_generated/server";
+import { v } from "convex/values";
+import { wearables } from "./wearables";
+
+export const disconnectProvider = mutation({
+  args: {
+    userId: v.string(),
+    provider: v.union(v.literal("garmin"), v.literal("strava")),
+  },
+  handler: async (ctx, args) => {
+    await wearables.disconnect(ctx, args);
+  },
+});
+```
+
+## Common next steps
+
+- If you need realistic fixtures before connecting a device, go to [Synthetic Data](/docs/guides/synthetic-data).
+- If you need route setup, go to [Webhooks and Routes](/docs/guides/webhooks-and-routes).
+- If you plan to ingest mobile health data, go to [SDK Push](/docs/guides/sdk-push).
+- If you want to control row growth for dense time-series data, go to [Storage Policies](/docs/guides/storage-policies).

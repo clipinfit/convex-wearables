@@ -1,0 +1,77 @@
+---
+title: Sync and Backfill
+description: Understand how scheduled syncs, sync jobs, and backfills fit together.
+---
+
+## Sync workflow
+
+The main sync workflow runs as a Convex action. At a high level it:
+
+1. validates or refreshes tokens
+2. fetches provider data with pagination
+3. writes events, time-series points, and summaries in batches
+4. records sync job state and errors
+
+## Cron-based sync
+
+Set up a Convex cron to sync active connections periodically:
+
+```ts
+// convex/crons.ts
+import { cronJobs } from "convex/server";
+import { components } from "./_generated/api";
+
+const crons = cronJobs();
+
+crons.interval(
+  "sync all wearables",
+  { minutes: 15 },
+  components.wearables.syncWorkflow.syncAllActive,
+  {
+    clientCredentials: {
+      strava: {
+        clientId: process.env.STRAVA_CLIENT_ID!,
+        clientSecret: process.env.STRAVA_CLIENT_SECRET!,
+      },
+    },
+    syncWindowHours: 24,
+  },
+);
+
+export default crons;
+```
+
+## Sync jobs
+
+The component tracks sync activity in `syncJobs`, including:
+
+- status
+- timestamps
+- current phase
+- cursor or pagination progress
+- records processed
+- workflow identifiers
+
+Use the client API to query recent jobs for a user:
+
+```ts
+await wearables.getSyncJobs(ctx, { userId: "user-123", limit: 20 });
+```
+
+## Backfill jobs
+
+Longer historical imports are tracked separately in `backfillJobs`.
+
+This is especially relevant for Garmin, where push webhooks and regular syncs cover ongoing updates, but a one-time or durable backfill may be needed to hydrate older history.
+
+## Interaction with storage policies
+
+Time-series storage policies apply to backfills too.
+
+That means:
+
+- historical points can land directly in rollup tiers
+- old data can be deleted if it falls outside the final tier
+- maintenance can compact raw or finer rollup data later if policy changes
+
+For cost-sensitive deployments, review [Storage Policies](/docs/guides/storage-policies) before enabling large backfills.

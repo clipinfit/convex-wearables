@@ -1,0 +1,283 @@
+---
+title: Outgoing Events and Self-Service Webhooks
+description: React to committed wearable data through typed callbacks or durable signed HTTPS subscriptions.
+---
+
+Outgoing events turn normalized Convex Wearables writes into optional,
+versioned integration signals. They are for imperative work and external
+systems—not UI freshness, which Convex reactive queries already provide.
+
+This feature is different from live provider webhooks. Provider callbacks bring
+WHOOP, Polar, or Suunto data into the component. Outgoing webhooks notify a host
+callback or authorized receiver after normalized data commits.
+
+## Architecture and guarantees
+
+```text
+normalized component mutation
+  -> transactional canonical outbox event
+  -> isolated outgoing Workflow/Workpool
+       -> optional typed host callback
+       -> exact tenant/user endpoint fan-out
+       -> signed, DNS-pinned HTTPS attempts
+       -> persisted retry/history/recovery state
+```
+
+The outbox event and its Workflow start are part of the source mutation. A
+rolled-back write cannot leave a false event. External HTTP never runs inside
+that transaction, and receiver failure never rolls back ingestion.
+
+Delivery is at least once and may be unordered. The same event ID and exact
+canonical body are reused for retries. Receivers must deduplicate by event ID
+before performing non-idempotent work.
+
+Outgoing work has a dedicated pool with ten concurrent actions. A delivery
+claim limits one endpoint to two concurrent requests, so a failing receiver
+cannot consume the provider sync, deletion, FIT, or inbound-webhook pools.
+
+## Host authorization and tenant mapping
+
+Component methods do not authenticate application users. Every management
+method must sit behind a host function that verifies the caller, tenant role,
+user ownership, consent, and entitlement.
+
+The host records its authorized tenant relationship before capture:
+
+```ts
+await wearables.setWebhookUserTenant(ctx, {
+  userId: authenticatedUserId,
+  tenantId: authorizedTenantId,
+});
+```
+
+This mapping lets provider workflows and SDK ingestion resolve a tenant inside
+the same mutation that writes an event. Without a mapping, that user's normal
+ingestion continues but no outgoing event is captured.
+
+Tenant-scoped endpoints receive matching events for mapped users in that
+tenant. User-scoped endpoints receive only their persisted exact `userId`. The
+caller cannot broaden scope at delivery time.
+
+## Enable capture and an internal callback
+
+Everything defaults to disabled:
+
+```ts
+await wearables.configureOutgoingWebhooks(ctx, {
+  captureEnabled: true,
+  externalDeliveryEnabled: false,
+});
+```
+
+For internal side effects, create a Convex function handle for a mutation or
+action accepting `WearablesEventEnvelope`, then store the handle through
+`internalCallbackHandle` and set `internalCallbackKind` to `"mutation"` or
+`"action"` accordingly. The callback receives the same versioned envelope as
+external receivers. It runs after commit, is isolated from ingestion, and is
+retried four times with exponential backoff. Endpoint fan-out commits before
+the callback, so an exhausted callback cannot suppress external delivery. It
+is at least once; persist your own receipt before non-idempotent work.
+
+`onDataSynced` remains compatible. Migrate incrementally when a typed event
+catalog is useful; do not remove an existing callback until the new consumer is
+verified.
+
+## Enable external delivery
+
+External endpoints require an encryption key. Generate 32 random bytes and set
+their base64 value in the Convex deployment:
+
+```bash
+openssl rand -base64 32
+npx convex env set CONVEX_WEARABLES_WEBHOOK_ENCRYPTION_KEY '<base64-value>'
+```
+
+The component stores endpoint secrets with AES-256-GCM. Missing or malformed
+key configuration fails external endpoint work closed while normal wearable
+ingestion remains available. Back up this key; losing every configured
+decryption key requires rotating each receiver secret.
+
+For master-key rotation, set the old value temporarily as
+`CONVEX_WEARABLES_WEBHOOK_PREVIOUS_ENCRYPTION_KEY`, set the new current key,
+call `rewrapWebhookEndpointSecret` for each bounded endpoint page, verify
+runtime/delivery health, and then remove the previous key. Encryption always
+uses the current key; decryption tries only the current and explicit previous
+key.
+
+Then enable external delivery:
+
+```ts
+await wearables.configureOutgoingWebhooks(ctx, {
+  captureEnabled: true,
+  externalDeliveryEnabled: true,
+});
+```
+
+## Create and verify an endpoint
+
+```ts
+const created = await wearables.createWebhookEndpoint(ctx, {
+  tenantId: authorizedTenantId,
+  scope: "user",
+  userId: authenticatedUserId,
+  url: "https://receiver.example/webhooks/wearables",
+  eventTypes: ["workout.*", "sleep.*"],
+  payloadMode: "reference",
+});
+```
+
+`created.signingSecret` is returned once. Display or transfer it securely; list
+and get queries never return plaintext or encrypted secret material.
+
+New endpoints are `pending_verification`. The receiver must accept a signed
+challenge before activation:
+
+```ts
+await wearables.verifyWebhookEndpoint(ctx, {
+  tenantId: authorizedTenantId,
+  endpointId: created.endpointId,
+});
+```
+
+Changing the URL revalidates its network destination and returns the endpoint
+to pending verification. Secret rotation returns the new secret once and can
+retain the previous signature for a bounded overlap of at most 24 hours.
+
+## Event catalog and filtering
+
+Version 1 includes connection, sync, workout, sleep, summary, time-series, and
+data-deletion lifecycle events. Use `listWearablesEventTypes` for the exact
+catalog.
+
+Groups such as `workout.*`, `sleep.*`, and `series.*` expand to exact known
+types when saved. Newly introduced sensitive events never silently enter an
+old subscription.
+
+`reference` is the default payload mode: identifiers, provider attribution,
+timestamps, categories, counts, and bounded summary metadata. `snapshot`
+requires both global and endpoint opt-in. It remains bounded and categorically
+excludes credentials, provider payloads, callback URLs, FIT bytes, routes/GPS,
+menstrual or pregnancy data, and raw sleep stages.
+
+The component chooses and stores the endpoint-specific canonical body during
+fan-out. Retries and manual recovery therefore keep the exact same bytes even
+if the endpoint's payload mode changes later. Snapshot storage is not created
+while the global snapshot switch is disabled; events captured before opt-in
+remain reference-only.
+
+Time-series events contain source/type/count/time bounds by default. They do
+not export stored samples in reference mode.
+
+## Verify receiver signatures
+
+Requests contain:
+
+```text
+wearables-id: <stable event id>
+wearables-timestamp: <unix seconds>
+wearables-signature: v1,<base64 hmac-sha256>
+wearables-attempt: <1-based attempt>
+wearables-event-type: <exact event type>
+```
+
+Read the raw request bytes before parsing JSON. Compute:
+
+```text
+HMAC-SHA256(secret, "<id>.<timestamp>.<rawBody>")
+```
+
+Compare in constant time and reject timestamps more than five minutes from the
+receiver clock. During secret overlap, the signature header may contain both
+valid signatures; accept either known key. Return 2xx only after taking durable
+responsibility for the event.
+
+## Network protections
+
+Registration and every delivery resolve the hostname. The component rejects:
+
+- non-HTTPS URLs, credentials, fragments, and ports other than 443;
+- localhost and `.local` names;
+- loopback, private, link-local, carrier-grade NAT, reserved, multicast,
+  unspecified, and other non-public addresses; and
+- any hostname whose DNS answer set contains a prohibited address.
+
+The selected validated public address is pinned into the TLS connection while
+the original hostname remains the SNI/certificate identity. Redirects are not
+followed, request timeouts are 15 seconds, response bodies are neither stored
+nor logged, and endpoint query strings are redacted from routine views.
+
+## Retry and endpoint health
+
+Failures use the durable schedule:
+
+| Attempt | Delay after failure |
+|---:|---:|
+| 1 | immediate |
+| 2 | 5 seconds |
+| 3 | 5 minutes |
+| 4 | 30 minutes |
+| 5 | 2 hours |
+| 6 | 5 hours |
+| 7 | 10 hours |
+| 8 | 10 hours |
+
+2xx succeeds. Network/TLS/DNS errors, timeouts, redirects, 4xx, 429, and 5xx
+retry while attempts and event retention remain. A bounded `Retry-After` on
+429/503 may delay the wake-up. HTTP 410 or
+`webhook-delivery: abort-message` is terminal. After eight attempts, delivery
+is failed and inspectable.
+
+Endpoint success resets its failure window. HTTP 410 disables immediately;
+failures spanning five days and multiple messages separated across the health
+window also disable. Disabling cancels queued work. Resuming never silently
+replays missed events.
+
+Each claim also creates a unique two-minute lease token and schedules a durable
+watchdog transactionally. The action renews the lease when network execution
+actually begins, so Workpool queue time cannot silently consume the request
+window. Successful completion makes the watchdogs no-ops. If the action is
+interrupted before persisting its result, the watchdog records
+a bounded `worker_interrupted` attempt and schedules another Workflow through
+the normal retry policy. Any late completion from the abandoned action is
+ignored because it carries the old lease token. This closes the
+worker-interruption gap while preserving at-least-once semantics.
+
+## History, recovery, and replay
+
+Use bounded tenant-scoped queries for endpoints, outbox events, deliveries, and
+attempts. They expose safe IDs, timestamps, statuses, status codes, durations,
+and error codes—not bodies, full query URLs, or secrets.
+
+`retryWebhookDelivery` retries one retained terminal row with the original
+event ID/body. `recoverFailedWebhookDeliveries` and
+`replayMissingWebhookEvents` create durable operations with progress from
+`getWebhookRecoveryOperation`. Replay is limited to retained events and a
+maximum 30-day window; existing event/endpoint deliveries are skipped
+idempotently.
+
+## Retention, deletion, and privacy
+
+- Canonical events live for at most 30 days.
+- Successful attempt history lives seven days.
+- Failed attempt history lives 30 days.
+- Endpoint configuration remains until explicit, tenant, or user deletion.
+
+Provider deletion cancels and removes matching provider events and deliveries.
+Whole-user deletion immediately redacts/cancels queued health payloads, deletes
+user-scoped endpoints and their secrets, and preserves tenant-wide endpoint
+configuration. A bounded deletion lifecycle event may contain approved status
+metadata, never the deleted health snapshot.
+
+Endpoint creation is a health-data export. Hosts must review privacy notices,
+consent, processor terms, support, abuse limits, and account deletion behavior.
+The component supplies technical boundaries but cannot determine legal basis.
+
+## Upgrade and rollback
+
+`0.12.0` is additive and disabled by default. Update the package and deploy
+Convex; no existing row rewrite is required. Configure mapping, capture,
+callbacks, the encryption key, host authorization, and endpoints gradually.
+
+To roll back, disable external delivery, pause endpoints, drain or cancel
+queued deliveries, then disable capture and callbacks. Leave the additive
+tables deployed until retained events and attempts expire.

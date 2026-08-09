@@ -1,0 +1,244 @@
+---
+title: Disconnecting and Deleting Data
+description: Safely disconnect providers, revoke provider access, and delete provider or user data with durable workflows.
+---
+
+`@clipin/convex-wearables` treats disconnecting, provider deregistration, and
+stored-data deletion as separate operations. This prevents a seemingly harmless
+disconnect button from unexpectedly destroying health history.
+
+## Choose the right operation
+
+| User intent | API | Stored wearable data | Provider authorization |
+|---|---|---|---|
+| Stop syncing for now | `disconnect` | Preserved | Local tokens are cleared |
+| Revoke the integration at the provider | `deregisterProvider` | Preserved | Revoked when supported; local tokens are always cleared |
+| Remove one provider and its data | `startProviderDataDeletion` | Matching provider data is deleted | Optional, with `deregister: true` |
+| Delete every wearable record for an app user | `startUserDataDeletion` | All component user data is deleted | Optional, with `deregisterProviders: true` |
+
+Deletion never starts automatically after a package upgrade. Remote
+deregistration is also explicit and disabled by default on deletion requests.
+
+## How durable deletion works
+
+A deletion request creates a small `dataDeletionOperations` record and starts a
+Convex Workflow. The operation record is the stable status surface for your
+application; Workflow and its Workpool execute the actual work.
+
+The workflow:
+
+1. optionally asks supported providers to revoke access
+2. prevents new writes in the matching user/provider scope
+3. cancels matching sync and backfill work
+4. clears local credentials
+5. deletes component tables in bounded, committed batches
+6. verifies each phase is empty
+7. records aggregate counts and a terminal status
+
+This structure works for accounts that are too large to erase safely in one
+Convex mutation. Repeating a completed batch is safe, and retries continue from
+the Workflow journal.
+
+<Callout type="warn" title="Cancellation cannot restore data">
+  Canceling a deletion stops future batches. Records removed by earlier batches
+  cannot be recovered.
+</Callout>
+
+## Delete one provider
+
+Start the operation from a host mutation. Use a stable idempotency key generated
+for the user's deletion request, rather than a random value on every retry.
+
+```ts
+// convex/wearables.ts
+import { mutation } from "./_generated/server";
+import { v } from "convex/values";
+import { wearables } from "./wearablesClient";
+
+export const removeGarminData = mutation({
+  args: {
+    userId: v.string(),
+    requestId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    return await wearables.startProviderDataDeletion(ctx, {
+      userId: args.userId,
+      provider: "garmin",
+      idempotencyKey: args.requestId,
+      deregister: true,
+    });
+  },
+});
+```
+
+The result contains:
+
+```ts
+{
+  operationId: string;
+  workflowId: string;
+  deduped: boolean;
+}
+```
+
+Calling the mutation again with the same user, scope, and idempotency key
+returns the existing operation. Reusing the key for a different provider or
+scope is rejected.
+
+Provider deletion removes matching connections, data sources, time-series
+points and rollups, events, summaries, menstrual-cycle rows, sync/backfill
+records, pending Garmin payloads, and OAuth state. Other providers and their
+data remain intact.
+
+## Delete all wearable data for a user
+
+```ts
+export const beginWearablesAccountDeletion = mutation({
+  args: {
+    userId: v.string(),
+    requestId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    return await wearables.startUserDataDeletion(ctx, {
+      userId: args.userId,
+      idempotencyKey: args.requestId,
+      deregisterProviders: true,
+    });
+  },
+});
+```
+
+A whole-user operation removes component-owned user data across every provider,
+including Synthetic data and user-level time-series policy assignments. Global
+provider credentials, global retention rules, and provider-priority
+configuration belong to the deployment and are not removed.
+
+The current operation remains available long enough for the host application to
+observe its result. Earlier deletion-operation records for the same user are
+removed as part of whole-user deletion.
+
+## Observe progress reactively
+
+Expose the operation through a host query:
+
+```ts
+import { query } from "./_generated/server";
+
+export const getWearablesDeletion = query({
+  args: { operationId: v.string() },
+  handler: async (ctx, args) => {
+    return await wearables.getDataDeletionOperation(ctx, args);
+  },
+});
+```
+
+Convex clients can subscribe to this query normally. Important fields include:
+
+| Field | Meaning |
+|---|---|
+| `status` | Overall operation lifecycle |
+| `currentPhase` | Component table currently being processed |
+| `deletedCounts` | Aggregate rows deleted by table |
+| `deregistrationStatus` | Aggregate result of optional provider revocation |
+| `errorCode` / `errorMessage` | Sanitized failure information |
+| `completedAt` | Terminal timestamp |
+
+Statuses are:
+
+- `pending`: accepted and waiting to run
+- `running`: actively deleting batches
+- `completed`: local deletion finished without provider warnings
+- `completed_with_warnings`: local deletion finished, but remote deregistration
+  was unsupported or failed for at least one provider
+- `failed`: deletion stopped before completion and continues to fence ingestion
+- `canceled`: no more batches will run; already deleted data remains deleted
+
+Use `getActiveDataDeletionOperation({ userId, provider? })` when you know the
+subject but did not retain an operation ID.
+
+## Failures, retries, and cleanup
+
+A failed operation deliberately continues blocking matching ingestion. This
+prevents partially deleted data from being recreated by a webhook or sync.
+
+Retry it with:
+
+```ts
+await wearables.retryDataDeletion(ctx, { operationId });
+```
+
+If an operator intentionally abandons the operation, release the fence with:
+
+```ts
+await wearables.cancelDataDeletion(ctx, { operationId });
+```
+
+After your application has consumed a completed or canceled result, remove the
+operation and completed Workflow history:
+
+```ts
+await wearables.cleanupDataDeletionOperation(ctx, { operationId });
+```
+
+Applications that need an audit record should copy only the minimum permitted
+metadata into their own audit system. Do not copy health values, access tokens,
+or provider response bodies.
+
+## Provider deregistration support
+
+Remote deregistration currently has an adapter for:
+
+| Provider | Remote behavior |
+|---|---|
+| Garmin | Deletes the Garmin app/user registration |
+| Strava | Uses the authenticated OAuth token-revocation endpoint |
+| Polar | Deletes the registered AccessLink user |
+| WHOOP | Revokes the user's OAuth access |
+| Suunto | Reported as unsupported; local disconnect/deletion still proceeds |
+| Apple, Google, Samsung, Synthetic | No cloud-provider deregistration; local state is handled normally |
+
+You can revoke a provider connection without deleting stored data:
+
+```ts
+const result = await wearables.deregisterProvider(ctx, {
+  userId,
+  provider: "strava",
+});
+```
+
+The method always clears the local connection after attempting the provider
+call. Inspect `result.status` to distinguish `completed`, `unsupported`, and
+`failed` remote outcomes.
+
+## Account-deletion integration pattern
+
+For a host application, the safest sequence is:
+
+1. authenticate and authorize the account-deletion request
+2. create an app-owned deletion request and stable idempotency key
+3. start `startUserDataDeletion`
+4. keep enough host identity/state to query the operation
+5. wait for `completed` or `completed_with_warnings`
+6. delete the host application's remaining user data
+7. clean up the component operation result when appropriate
+
+Local deletion success is usually a better terminal requirement than successful
+remote deregistration. A provider outage should not prevent local erasure. Show
+or audit the warning and provide a recovery path appropriate to your product.
+
+## Upgrade from the legacy helper
+
+`deleteAllUserData` remains available for compatibility but is deprecated. It
+performs synchronous deletion and can exceed Convex limits for large accounts.
+
+To migrate:
+
+1. upgrade the package and deploy the additive component schema
+2. replace `deleteAllUserData` with `startUserDataDeletion`
+3. store or return the operation ID
+4. observe a terminal state before deleting the host identity
+5. retain explicit handling for `failed` and `completed_with_warnings`
+
+No existing component documents need to be rewritten. The upgrade adds
+`dataDeletionOperations`, its indexes, an OAuth-state lookup index, and a daily
+summary data-source index.

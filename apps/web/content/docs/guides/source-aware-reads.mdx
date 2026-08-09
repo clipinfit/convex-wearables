@@ -1,0 +1,172 @@
+---
+title: Source-Aware Reads
+description: Preserve provider, writer, and device provenance while consumers build canonical health views.
+---
+
+Source-aware reads are available starting with `0.13.0`. They expose the
+independent streams Convex Wearables stores without deciding which stream your
+product should display.
+
+## Why source provenance matters
+
+A provider and the original writer are not always the same thing:
+
+- a Garmin API workout arrives through `provider: "garmin"`;
+- a Garmin workout mirrored into Strava arrives through `provider: "strava"`;
+- Fitbit data read from Health Connect arrives through `provider: "google"`,
+  while its writer may be identified as Fitbit; and
+- several watches or applications can write the same metric into one native
+  health store.
+
+Convex Wearables stores these as independent `dataSources`. It does not discard
+one stream or guess that two records represent the same real-world activity.
+
+## Data-source metadata
+
+List all streams for a user:
+
+```ts
+const sources = await wearables.getDataSources(ctx, { userId });
+```
+
+Or restrict the list to one integration family:
+
+```ts
+const garminSources = await wearables.getProviderDataSources(ctx, {
+  userId,
+  provider: "garmin",
+});
+```
+
+A `WearableDataSource` can contain:
+
+| Field | Meaning |
+|---|---|
+| `_id` | Stable source key referenced by events and points |
+| `provider` | Integration family used to ingest the data |
+| `source` | Provider sub-surface or source application |
+| `originalSourceName` | Original writer, package, bundle, or application when available |
+| `deviceModel` | Raw provider/SDK device model |
+| `deviceType` | Device category such as watch, phone, ring, or scale |
+| `softwareVersion` | Reported device/software version |
+| `connectionId` | Related provider connection when one exists |
+
+The component preserves raw metadata. Marketing names, localization, icons, and
+device catalogues remain presentation concerns for the host application.
+
+## Source-aware events
+
+```ts
+const page = await wearables.getEventsWithSources(ctx, {
+  userId,
+  category: "workout",
+  startDate,
+  endDate,
+  limit: 50,
+});
+
+const sourcesById = new Map(page.dataSources.map((source) => [source._id, source]));
+
+const attributedEvents = page.events.map((event) => ({
+  event,
+  source: sourcesById.get(event.dataSourceId),
+}));
+```
+
+The response keeps the normal event cursor contract:
+
+- events are selected newest first;
+- the opaque `nextCursor` continues the query without skipping different
+  sources that share the same start timestamp;
+- `hasMore` indicates another page; and
+- only data sources represented in that page are returned in the sidecar.
+
+Filter to one provider family:
+
+```ts
+await wearables.getEventsWithSources(ctx, {
+  userId,
+  category: "workout",
+  provider: "garmin",
+});
+```
+
+Or one exact stream:
+
+```ts
+await wearables.getEventsWithSources(ctx, {
+  userId,
+  category: "workout",
+  dataSourceId,
+});
+```
+
+## Source-aware time series
+
+```ts
+const result = await wearables.getTimeSeriesWithSources(ctx, {
+  userId,
+  seriesType: "heart_rate",
+  startDate,
+  endDate,
+});
+
+const sourcesById = new Map(result.dataSources.map((source) => [source._id, source]));
+
+for (const point of result.points) {
+  const source = sourcesById.get(point.dataSourceId);
+  console.log(point.timestamp, point.value, source?.provider, source?.originalSourceName);
+}
+```
+
+The read remains storage-policy aware. A point can represent raw data or a
+rollup and can include `resolution`, `bucketMinutes`, `avg`, `min`, `max`,
+`last`, and `count`. In either case, `dataSourceId` continues to identify the
+stream that produced it.
+
+Use `provider` or `dataSourceId` when your processing pipeline already knows
+which stream it wants. By default the query selects the newest bounded set and
+returns it chronologically, matching `getTimeSeries`; use `order: "asc"` or
+`order: "desc"` for an explicit selection order.
+
+## Canonicalization belongs to the consumer
+
+Source-aware reads provide evidence, not policy. A consumer can use the
+metadata to:
+
+- display attribution;
+- rank direct-provider data above mirrored health-store data;
+- build per-provider views;
+- detect likely mirrored workouts; or
+- preserve every stream for analytics.
+
+The component does not:
+
+- disable Garmin because Strava is connected;
+- merge records with similar timestamps;
+- choose one provider for user-facing totals;
+- infer that an original writer is always authoritative; or
+- change AI/consent eligibility for a source.
+
+Those decisions depend on product consent, provider agreements, and the
+consumer's canonical model.
+
+## Authorization and ownership
+
+The component verifies that an exact `dataSourceId` belongs to the supplied
+`userId`; mismatches return an empty result. As with other component reads, the
+host must still authenticate the caller and authorize access to that `userId`
+before invoking `WearablesClient`.
+
+## Upgrade path
+
+The feature is additive:
+
+- no schema migration or existing-row rewrite;
+- no new environment variables or routes;
+- no change to `getEvents`, `getEvent`, or `getTimeSeries`; and
+- no requirement to adopt the new methods everywhere at once.
+
+Update and deploy the package, then migrate only the reads that need
+attribution or canonical-source processing. Rollback is code-only: switch those
+callers back to the legacy read methods.

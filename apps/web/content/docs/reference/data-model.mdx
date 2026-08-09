@@ -1,0 +1,86 @@
+---
+title: Data Model
+description: Tables, indexes, and deduplication rules used by the component.
+---
+
+## Core tables
+
+| Table | Description | Key indexes |
+|---|---|---|
+| `connections` | OAuth tokens and provider links per user | `by_user`, `by_user_provider`, `by_provider_user`, `by_provider_username`, `by_status` |
+| `dataSources` | User + provider + device/source combinations | `by_user_provider`, `by_user_provider_device`, `by_connection` |
+| `events` | Workouts and sleep sessions | `by_user_category_time`, `by_external_id`, `by_source_start_end` |
+| `dataPoints` | Raw time-series samples | `by_source_type_time`, `by_source_time`, `by_type_time` |
+| `timeSeriesRollups` | Bucketed historical time-series aggregates | `by_source_type_bucket`, `by_source_type_bucket_size`, `by_source_bucket`, `by_type_bucket` |
+| `dailySummaries` | Precomputed daily aggregates | `by_user_category_date`, `by_user_date` |
+| `syncJobs` | Sync workflow records | `by_user`, `by_user_provider`, `by_user_status`, `by_status` |
+| `oauthStates` | Temporary OAuth PKCE state | `by_state` |
+| `backfillJobs` | Long-running historical data import tracking | `by_connection`, `by_status` |
+| `workoutSegments` | Laps, splits, swim lengths, and strength sets | `by_event_kind_index`, `by_user_provider` |
+| `workoutZones` | Heart-rate and power time-in-zone | `by_event_kind_zone`, `by_user_provider` |
+| `garminActivityFileJobs` | Ephemeral FIT callback processing state | `by_connection_status`, `by_activity`, `by_event_external_id`, `by_expiry` |
+| `providerWebhookReceipts` | Durable, bounded WHOOP/Polar/Suunto callback inbox | `by_provider_idempotency`, provider/status paging, `by_expiry`, `by_connection_status` |
+| `providerWebhookRegistrations` | Application-level live-provider configuration and safe status | `by_provider` |
+| `outgoingWebhookConfiguration` | Global opt-in switches, limits, retention, and optional callback handle | `by_key` |
+| `outgoingWebhookUserTenants` | Host-authorized user-to-tenant mapping for transactional capture | `by_user`, `by_tenant_user` |
+| `outgoingWebhookEndpoints` | Encrypted tenant/user endpoint configuration and health | tenant/status and tenant/user/status indexes |
+| `outgoingWebhookEvents` | Canonical transactional outbox with tenant-scoped idempotency and bounded reference/snapshot bodies | tenant/time, tenant/idempotency, fan-out, expiry indexes |
+| `outgoingWebhookDeliveries` | Durable event-to-endpoint state plus its immutable selected delivery body | event/endpoint and tenant/endpoint/status/time indexes |
+| `outgoingWebhookAttempts` | Bounded response status and safe error history | delivery/time, endpoint/time, expiry indexes |
+| `outgoingWebhookOperations` | Host-visible durable recovery and replay progress | tenant/time, endpoint/status |
+
+## Policy-related tables
+
+| Table | Description | Key indexes |
+|---|---|---|
+| `timeSeriesPolicyRules` | Default rules and preset rules | `by_set`, `by_set_scope` |
+| `timeSeriesPolicyAssignments` | Per-user preset assignment | `by_user`, `by_preset` |
+| `timeSeriesPolicySettings` | Global maintenance settings | `by_key` |
+| `timeSeriesSeriesState` | Per-source series maintenance cursor | `by_source_series`, `by_next_maintenance`, `by_user` |
+
+## Source provenance
+
+`dataSources` separates the integration family (`provider`) from writer and
+device attribution (`source`, `originalSourceName`, `deviceModel`,
+`deviceType`, and `softwareVersion`). Events and raw/rollup time-series streams
+reference a stable `dataSourceId`.
+
+Source-aware reads return row-level `dataSourceId` values plus a normalized
+`dataSources` sidecar. They preserve independent streams and do not define a
+canonical provider. See [Source-Aware Reads](/docs/guides/source-aware-reads).
+
+## Deduplication rules
+
+### Events
+
+Events are deduplicated at two levels:
+
+1. `externalId` when the provider gives a stable identifier
+2. `dataSourceId + startDatetime + endDatetime` as a second guardrail
+
+### Data points
+
+Raw data points are deduplicated by:
+
+- `dataSourceId`
+- `seriesType`
+- `recordedAt`
+
+### Rollups
+
+Rollups are upserted by:
+
+- `dataSourceId`
+- `seriesType`
+- `bucketMs`
+- `bucketStart`
+
+## Query strategy
+
+The component separates raw rows and rollups so that:
+
+- recent high-fidelity data can stay raw
+- older dense history can become cheaper rollup buckets
+- reads can choose the best available representation for the requested time range
+
+For details on how tiers are resolved, see [Storage Policies](/docs/guides/storage-policies).

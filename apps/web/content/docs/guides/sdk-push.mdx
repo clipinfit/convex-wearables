@@ -1,0 +1,158 @@
+---
+title: SDK Push
+description: Send normalized health payloads from mobile apps into the component.
+---
+
+## When to use SDK push
+
+Use SDK push when your app collects health data directly on-device and sends normalized payloads to Convex.
+
+This is the path used for:
+
+- Apple Health
+- Samsung Health
+- Google Health Connect
+
+The component stores and queries that data, but it does not currently fetch it directly from vendor APIs.
+
+## Example payload
+
+The original v1 route remains strict: if any row fails its Convex validator,
+the entire request is rejected. Existing clients can keep using this contract.
+
+```json
+{
+  "userId": "user_123",
+  "provider": "google",
+  "sourceMetadata": {
+    "deviceModel": "Pixel Watch 3",
+    "source": "health-connect"
+  },
+  "events": [],
+  "dataPoints": [
+    {
+      "seriesType": "heart_rate",
+      "recordedAt": 1773817200000,
+      "value": 58
+    }
+  ],
+  "summaries": []
+}
+```
+
+## Payload shape
+
+| Field | Meaning |
+|---|---|
+| `userId` | Your application user identifier |
+| `provider` | One of `apple`, `samsung`, or `google` |
+| `sourceMetadata` | Optional device and source metadata |
+| `events` | Normalized workout or sleep events |
+| `dataPoints` | Normalized time-series samples |
+| `summaries` | Daily summary rows |
+
+Compatibility aliases are also supported:
+
+- `device` as an alias for `sourceMetadata`
+- `dailySummaries` as an alias for `summaries`
+
+## Resilient v2 ingestion
+
+Use `/sdk/sync/v2` when one malformed row should not discard an otherwise
+useful batch. The route uses an outer request envelope and places the normalized
+v1 fields inside `payload`:
+
+```json
+{
+  "userId": "user_123",
+  "provider": "google",
+  "requestId": "health-connect-2026-08-01T08:00:00Z",
+  "mode": "partial",
+  "payload": {
+    "sourceMetadata": {
+      "deviceModel": "Pixel Watch 3",
+      "source": "health-connect"
+    },
+    "dataPoints": [
+      {
+        "seriesType": "heart_rate",
+        "recordedAt": 1785571200000,
+        "value": 58
+      }
+    ]
+  }
+}
+```
+
+`requestId` is required and should remain stable when retrying the same client
+batch. It is a correlation identifier, not a durable receipt. Existing event,
+time-series, and summary identities make retries idempotent.
+
+The default `partial` mode validates rows independently and stores valid rows.
+Set `mode` to `strict` when no row should be stored if any row is invalid. The
+response distinguishes validation from storage:
+
+```json
+{
+  "requestId": "health-connect-2026-08-01T08:00:00Z",
+  "status": "partially_accepted",
+  "mode": "partial",
+  "connectionId": "...",
+  "counts": {
+    "received": 12,
+    "accepted": 11,
+    "rejected": 1,
+    "stored": 11
+  },
+  "categories": {
+    "events": { "received": 2, "accepted": 2, "rejected": 0, "stored": 2 },
+    "dataPoints": { "received": 10, "accepted": 9, "rejected": 1, "stored": 9 },
+    "summaries": { "received": 0, "accepted": 0, "rejected": 0, "stored": 0 }
+  },
+  "rejections": [
+    {
+      "category": "dataPoints",
+      "index": 4,
+      "code": "invalid_type",
+      "path": "recordedAt",
+      "message": "Field \"recordedAt\" has an invalid type."
+    }
+  ],
+  "rejectionCountTruncated": 0
+}
+```
+
+Rejection samples are capped at 50. Use `rejectionCountTruncated` and aggregate
+counts for monitoring; responses never include rejected rows or health values.
+
+| Rejection code | Client action |
+|---|---|
+| `invalid_envelope` | Correct the request wrapper before retrying. |
+| `invalid_type` | Correct or drop the row; do not retry it unchanged. |
+| `invalid_value` | Correct timestamps, dates, or invariants before retrying. |
+| `missing_field` | Add the required normalized field. |
+| `unknown_field` | Remove unsupported fields or upgrade the producer contract. |
+| `unsupported_series_type` | Map the source metric to a supported series type or drop it. |
+| `limit_exceeded` | Split the batch into smaller requests. |
+
+The HTTP route rejects bodies larger than two megabytes before invoking the
+component. Row limits remain 500 events, 10,000 data points, and 1,000 combined
+summaries per request.
+
+## What happens on the backend
+
+SDK payloads are stored through the same shared tables used by cloud providers:
+
+- `connections`
+- `dataSources`
+- `events`
+- `dataPoints`
+- `dailySummaries`
+
+That means time-series policies, summary queries, and downstream reads behave consistently regardless of whether the source was Garmin, Strava, or your own mobile app.
+
+## Related pages
+
+- [Webhooks and Routes](/docs/guides/webhooks-and-routes)
+- [Storage Policies](/docs/guides/storage-policies)
+- [Data Model](/docs/reference/data-model)

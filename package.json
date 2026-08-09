@@ -1,95 +1,27 @@
 {
-  "name": "@clipin/convex-wearables",
-  "version": "0.13.0",
-  "description": "Convex component for normalized wearable integrations and deterministic synthetic health data.",
-  "license": "Apache-2.0",
-  "homepage": "https://github.com/clipinfit/convex-wearables#readme",
-  "bugs": {
-    "url": "https://github.com/clipinfit/convex-wearables/issues"
+  "name": "convex-wearables-workspace",
+  "private": true,
+  "packageManager": "npm@11.14.1",
+  "engines": {
+    "node": ">=20"
   },
-  "type": "module",
-  "main": "./dist/client/index.js",
-  "types": "./dist/client/index.d.ts",
-  "files": [
-    "dist",
-    "src"
+  "workspaces": [
+    "packages/*",
+    "apps/*"
   ],
-  "exports": {
-    "./package.json": "./package.json",
-    ".": {
-      "types": "./dist/client/index.d.ts",
-      "default": "./dist/client/index.js"
-    },
-    "./test": "./src/test.ts",
-    "./_generated/component.js": {
-      "types": "./dist/component/_generated/component.d.ts"
-    },
-    "./convex.config": {
-      "types": "./dist/component/convex.config.d.ts",
-      "default": "./dist/component/convex.config.js"
-    },
-    "./convex.config.js": {
-      "types": "./dist/component/convex.config.d.ts",
-      "default": "./dist/component/convex.config.js"
-    },
-    "./types": {
-      "types": "./dist/client/types.d.ts",
-      "default": "./dist/client/types.js"
-    }
-  },
-  "publishConfig": {
-    "access": "public"
-  },
   "scripts": {
-    "prebuild": "node --eval \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
-    "build": "tsc -p tsconfig.build.json",
-    "dev": "tsc -p tsconfig.build.json --watch",
-    "format": "biome format --write .",
-    "lint": "biome check .",
-    "lint:fix": "biome check --write .",
-    "prepack": "npm run build",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
-    "typecheck": "tsc --noEmit",
-    "release": "tsx scripts/release.ts"
-  },
-  "dependencies": {
-    "@convex-dev/workflow": "^0.3.6",
-    "convex-helpers": ">=0.1.99",
-    "fit-file-parser": "^4.1.0"
-  },
-  "peerDependencies": {
-    "convex": ">=1.17.0"
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "dev:web": "npm run dev --workspace @clipin/convex-wearables-web",
+    "format": "turbo run format",
+    "lint": "turbo run lint",
+    "pack:check": "npm pack --dry-run --workspace @clipin/convex-wearables",
+    "release": "npm run release --workspace @clipin/convex-wearables --",
+    "test": "turbo run test",
+    "test:coverage": "npm run test:coverage --workspace @clipin/convex-wearables",
+    "typecheck": "turbo run typecheck"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.4.7",
-    "@edge-runtime/vm": "^5.0.0",
-    "@types/node": "^22.0.0",
-    "convex": "^1.17.0",
-    "convex-test": "^0.0.35",
-    "tsx": "^4.19.0",
-    "typescript": "~5.6.0",
-    "vitest": "^3.0.0"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/clipinfit/convex-wearables.git"
-  },
-  "keywords": [
-    "convex",
-    "convex-component",
-    "wearables",
-    "health",
-    "garmin",
-    "strava",
-    "whoop",
-    "polar",
-    "suunto",
-    "apple-health",
-    "samsung-health",
-    "google-health-connect",
-    "fitness",
-    "iot"
-  ]
+    "turbo": "2.10.8"
+  }
 }

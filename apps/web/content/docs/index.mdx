@@ -1,0 +1,77 @@
+---
+title: Convex Wearables
+description: Documentation for the Convex component that syncs wearable data into your app.
+---
+
+A Convex component for wearable device integrations. Sync workouts, sleep, time-series metrics, and daily summaries from Garmin, Strava, Whoop, Polar, Suunto, and normalized mobile SDK payloads—or generate them with Synth—into a consistent schema.
+
+## What you get
+
+- OAuth flows and provider connection lifecycle
+- Cloud-provider sync for Garmin, Strava, Whoop, Polar, and Suunto
+- Query APIs for workouts, sleep, summaries, and time-series data
+- Configurable time-series retention and rollups
+- Garmin webhook support and normalized SDK push ingestion for Apple HealthKit, Samsung Health, and Google Health Connect
+- Deterministic, explicitly enabled fixtures from the first-class Synthetic provider
+- A shared storage model that works across syncs, webhooks, and mobile payloads
+
+## Start here
+
+<Cards>
+  <Card
+    title="Installation"
+    href="/docs/getting-started/installation"
+    description="Install the component, mount it in Convex, and create your client."
+  />
+  <Card
+    title="Quickstart"
+    href="/docs/getting-started/quickstart"
+    description="Start reading workouts, summaries, and time-series data."
+  />
+  <Card
+    title="Synthetic Data"
+    href="/docs/guides/synthetic-data"
+    description="Generate deterministic workouts, sleep, time series, and summaries."
+  />
+  <Card
+    title="Storage Policies"
+    href="/docs/guides/storage-policies"
+    description="Control raw retention, rollups, presets, and per-user assignment."
+  />
+  <Card
+    title="Client API"
+    href="/docs/reference/client-api"
+    description="Browse the public query, mutation, and action helpers."
+  />
+</Cards>
+
+## Documentation map
+
+### Getting Started
+
+- [Installation](/docs/getting-started/installation)
+- [Quickstart](/docs/getting-started/quickstart)
+
+### Guides
+
+- [Synthetic Data](/docs/guides/synthetic-data)
+- [Storage Policies](/docs/guides/storage-policies)
+- [Webhooks and Routes](/docs/guides/webhooks-and-routes)
+- [SDK Push](/docs/guides/sdk-push)
+- [Sync and Backfill](/docs/guides/sync-and-backfill)
+
+### Reference
+
+- [Client API](/docs/reference/client-api)
+- [Provider Support](/docs/reference/provider-support)
+- [Data Model](/docs/reference/data-model)
+- [Series Types](/docs/reference/series-types)
+
+## Who this is for
+
+This documentation is written for teams integrating wearable data into a Convex backend and wanting:
+
+- a production path for Garmin, Strava, Whoop, Polar, and Suunto
+- normalized ingestion for Apple Health, Samsung Health, and Google Health Connect through their own apps
+- deterministic development and demo data without a connected device
+- clear control over time-series row growth and retention cost
