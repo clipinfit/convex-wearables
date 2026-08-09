@@ -997,6 +997,134 @@ at-least-once signals: duplicates are harmless, but providers can still omit or
 reorder them. Incoming provider webhooks are unrelated to the planned outgoing
 consumer webhook feature.
 
+### Durable outgoing events and self-service webhooks
+
+Version `0.12.0` adds an opt-in transactional event stream for host callbacks
+and signed external subscriptions. This is distinct from provider webhooks:
+provider callbacks ingest wearable data, while outgoing webhooks notify systems
+after normalized component data commits.
+
+Nothing is captured or delivered until a host enables it. First persist the
+host-authorized tenant membership used by transactional writes:
+
+```ts
+await wearables.setWebhookUserTenant(ctx, {
+  userId: authenticatedUserId,
+  tenantId: authorizedTenantId,
+});
+
+await wearables.configureOutgoingWebhooks(ctx, {
+  captureEnabled: true,
+  externalDeliveryEnabled: false,
+});
+```
+
+For a typed internal callback, create a Convex function handle for a mutation
+or action accepting `WearablesEventEnvelope`, then pass that handle to
+`configureOutgoingWebhooks` with its function kind:
+
+```ts
+await wearables.configureOutgoingWebhooks(ctx, {
+  captureEnabled: true,
+  internalCallbackHandle: callbackHandle,
+  internalCallbackKind: "mutation", // or "action"
+});
+```
+
+Callback errors are isolated from ingestion and retried four times with
+exponential backoff in the outgoing-webhook Workflow pool. External endpoint
+fan-out is committed before the callback runs, so exhausting callback retries
+cannot suppress external delivery. `onDataSynced` remains supported.
+
+External delivery additionally requires a deployment secret:
+
+```bash
+openssl rand -base64 32
+npx convex env set CONVEX_WEARABLES_WEBHOOK_ENCRYPTION_KEY '<base64-key>'
+```
+
+Enable delivery only after that key is present. Endpoint and configuration
+methods do not authenticate callers; expose them through host functions that
+verify tenant administration or exact user ownership:
+
+```ts
+await wearables.configureOutgoingWebhooks(ctx, {
+  captureEnabled: true,
+  externalDeliveryEnabled: true,
+});
+
+const created = await wearables.createWebhookEndpoint(ctx, {
+  tenantId: authorizedTenantId,
+  scope: "user",
+  userId: authenticatedUserId,
+  url: "https://receiver.example/webhooks/wearables",
+  eventTypes: ["workout.*", "sleep.*"],
+  payloadMode: "reference",
+});
+// Display created.signingSecret once; ordinary queries never return it.
+
+await wearables.verifyWebhookEndpoint(ctx, {
+  tenantId: authorizedTenantId,
+  endpointId: created.endpointId,
+});
+```
+
+Group selectors expand to the exact catalog at save time, so future sensitive
+events do not silently enter existing subscriptions. Reference payloads are
+the default. Snapshot mode requires both global and per-endpoint opt-in and
+still excludes routes/GPS, menstrual data, raw sleep stages, credentials,
+provider payloads, and files. Fan-out stores the endpoint-specific canonical
+body, so retries keep identical bytes after later endpoint configuration
+changes. Snapshot bodies are not retained before the global opt-in is enabled.
+
+Every delivery uses the immutable canonical event body and these headers:
+
+```text
+wearables-id: <stable event id>
+wearables-timestamp: <unix seconds>
+wearables-signature: v1,<base64 hmac-sha256>
+wearables-attempt: <1-based attempt>
+wearables-event-type: <event type>
+```
+
+Verify `HMAC-SHA256(secret, "<id>.<timestamp>.<rawBody>")` against the exact
+bytes using constant-time comparison and reject timestamps outside five
+minutes. Delivery is at least once and unordered; receivers must persist the
+event ID before non-idempotent work.
+
+External POSTs are HTTPS-only, redirect-free, limited to port 443, and use a
+public DNS result pinned into the TLS connection. Local, private, link-local,
+reserved, multicast, credentialed, and fragment URLs fail closed. Requests
+time out after 15 seconds. Failures follow the eight-attempt schedule of
+immediate, 5 seconds, 5 minutes, 30 minutes, 2 hours, 5 hours, 10 hours, and
+10 hours. HTTP 410 and `webhook-delivery: abort-message` are terminal.
+
+Every delivery claim receives a unique two-minute lease token and schedules a
+durable watchdog in the same mutation. The network action renews that lease
+when it actually starts, preventing Workpool queue time from consuming the
+request window. Normal completion makes both watchdogs no-ops. If an action is
+interrupted before recording its result, the watchdog
+records a bounded `worker_interrupted` attempt and durably schedules the next
+Workflow according to the normal retry policy. A late result from the abandoned
+worker cannot update the reissued delivery because its lease token no longer
+matches. The receiver may still observe the stable event more than once, so
+receiver-side event-ID deduplication remains required.
+
+Use the endpoint/event/delivery/attempt list methods for safe status, and
+`retryWebhookDelivery`, `recoverFailedWebhookDeliveries`, or
+`replayMissingWebhookEvents` for explicit recovery. Bulk recovery and replay
+return a durable operation ID whose progress is available through
+`getWebhookRecoveryOperation`. Payloads are retained up to 30 days, successful
+attempts seven days, and failed attempts 30 days. Provider/user deletion
+cancels and removes matching queued health payloads; tenant-wide endpoint
+configuration survives deletion of one user.
+
+To rotate the deployment master key, temporarily set the old key as
+`CONVEX_WEARABLES_WEBHOOK_PREVIOUS_ENCRYPTION_KEY`, install the new current
+key, call `rewrapWebhookEndpointSecret` for every endpoint, verify delivery,
+then remove the previous key. Losing all configured decryption keys requires
+receiver-secret rotation.
+
 ### Strava Webhooks
 
 The component provides HTTP handlers for Strava's [webhook events API](https://developers.strava.com/docs/webhooks/):

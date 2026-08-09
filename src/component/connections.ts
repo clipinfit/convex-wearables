@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { assertIngestionAllowed } from "./lifecycle";
+import { captureOutgoingEvent } from "./outgoingWebhooks";
 import { connectionStatus, providerName } from "./schema";
 
 // ---------------------------------------------------------------------------
@@ -191,13 +192,31 @@ export const createConnection = internalMutation({
         ...args,
         status: "active",
       });
+      await captureOutgoingEvent(ctx, {
+        userId: args.userId,
+        provider: args.provider,
+        eventType: "connection.status_changed",
+        subjectKind: "connection",
+        subjectId: String(existing._id),
+        idempotencyKey: `connection:${existing._id}:active:${Date.now()}`,
+        data: { connectionId: String(existing._id), provider: args.provider, status: "active" },
+      });
       return existing._id;
     }
-
-    return await ctx.db.insert("connections", {
+    const id = await ctx.db.insert("connections", {
       ...args,
       status: "active",
     });
+    await captureOutgoingEvent(ctx, {
+      userId: args.userId,
+      provider: args.provider,
+      eventType: "connection.created",
+      subjectKind: "connection",
+      subjectId: String(id),
+      idempotencyKey: `connection:${id}:created`,
+      data: { connectionId: String(id), provider: args.provider, status: "active" },
+    });
+    return id;
   },
 });
 
@@ -228,16 +247,35 @@ export const ensurePushConnection = internalMutation({
         providerUsername: args.providerUsername ?? existing.providerUsername,
         status: "active",
       });
+      if (existing.status !== "active")
+        await captureOutgoingEvent(ctx, {
+          userId: args.userId,
+          provider: args.provider,
+          eventType: "connection.status_changed",
+          subjectKind: "connection",
+          subjectId: String(existing._id),
+          idempotencyKey: `connection:${existing._id}:active:${Date.now()}`,
+          data: { connectionId: String(existing._id), provider: args.provider, status: "active" },
+        });
       return existing._id;
     }
-
-    return await ctx.db.insert("connections", {
+    const id = await ctx.db.insert("connections", {
       userId: args.userId,
       provider: args.provider,
       providerUserId: args.providerUserId,
       providerUsername: args.providerUsername,
       status: "active",
     });
+    await captureOutgoingEvent(ctx, {
+      userId: args.userId,
+      provider: args.provider,
+      eventType: "connection.created",
+      subjectKind: "connection",
+      subjectId: String(id),
+      idempotencyKey: `connection:${id}:created`,
+      data: { connectionId: String(id), provider: args.provider, status: "active" },
+    });
+    return id;
   },
 });
 
@@ -278,7 +316,23 @@ export const updateStatus = internalMutation({
     status: connectionStatus,
   },
   handler: async (ctx, args) => {
+    const connection = await ctx.db.get(args.connectionId);
     await ctx.db.patch(args.connectionId, { status: args.status });
+    if (connection && connection.status !== args.status)
+      await captureOutgoingEvent(ctx, {
+        userId: connection.userId,
+        provider: connection.provider,
+        eventType: "connection.status_changed",
+        subjectKind: "connection",
+        subjectId: String(connection._id),
+        idempotencyKey: `connection:${connection._id}:${args.status}:${Date.now()}`,
+        data: {
+          connectionId: String(connection._id),
+          provider: connection.provider,
+          previousStatus: connection.status,
+          status: args.status,
+        },
+      });
   },
 });
 
@@ -320,6 +374,20 @@ export const disconnect = mutation({
         accessToken: undefined,
         refreshToken: undefined,
         tokenExpiresAt: undefined,
+      });
+      await captureOutgoingEvent(ctx, {
+        userId: conn.userId,
+        provider: conn.provider,
+        eventType: "connection.status_changed",
+        subjectKind: "connection",
+        subjectId: String(conn._id),
+        idempotencyKey: `connection:${conn._id}:inactive:${Date.now()}`,
+        data: {
+          connectionId: String(conn._id),
+          provider: conn.provider,
+          previousStatus: conn.status,
+          status: "inactive",
+        },
       });
     }
 

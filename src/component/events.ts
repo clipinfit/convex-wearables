@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery, query } from "./_generated/server";
 import { assertIngestionAllowed } from "./lifecycle";
+import { captureOutgoingEvent, outgoingEventFingerprint } from "./outgoingWebhooks";
 import { eventCategory, providerName } from "./schema";
 
 // ---------------------------------------------------------------------------
@@ -198,6 +199,22 @@ export const storeEvent = internalMutation({
       if (existing) {
         // Update existing record
         await ctx.db.patch(existing._id, args);
+        await captureOutgoingEvent(ctx, {
+          userId: args.userId,
+          provider: source?.provider,
+          eventType: `${args.category}.upserted`,
+          subjectKind: args.category,
+          subjectId: String(existing._id),
+          idempotencyKey: `${args.category}:${source?.provider ?? "unknown"}:${args.externalId ?? existing._id}:${outgoingEventFingerprint(args)}`,
+          data: {
+            eventId: String(existing._id),
+            category: args.category,
+            type: args.type,
+            startDatetime: args.startDatetime,
+            endDatetime: args.endDatetime,
+            externalId: args.externalId,
+          },
+        });
         return existing._id;
       }
     }
@@ -215,10 +232,42 @@ export const storeEvent = internalMutation({
 
     if (existing) {
       await ctx.db.patch(existing._id, args);
+      await captureOutgoingEvent(ctx, {
+        userId: args.userId,
+        provider: source?.provider,
+        eventType: `${args.category}.upserted`,
+        subjectKind: args.category,
+        subjectId: String(existing._id),
+        idempotencyKey: `${args.category}:${source?.provider ?? "unknown"}:${args.externalId ?? existing._id}:${outgoingEventFingerprint(args)}`,
+        data: {
+          eventId: String(existing._id),
+          category: args.category,
+          type: args.type,
+          startDatetime: args.startDatetime,
+          endDatetime: args.endDatetime,
+          externalId: args.externalId,
+        },
+      });
       return existing._id;
     }
-
-    return await ctx.db.insert("events", args);
+    const id = await ctx.db.insert("events", args);
+    await captureOutgoingEvent(ctx, {
+      userId: args.userId,
+      provider: source?.provider,
+      eventType: `${args.category}.upserted`,
+      subjectKind: args.category,
+      subjectId: String(id),
+      idempotencyKey: `${args.category}:${source?.provider ?? "unknown"}:${args.externalId ?? id}:${outgoingEventFingerprint(args)}`,
+      data: {
+        eventId: String(id),
+        category: args.category,
+        type: args.type,
+        startDatetime: args.startDatetime,
+        endDatetime: args.endDatetime,
+        externalId: args.externalId,
+      },
+    });
+    return id;
   },
 });
 
@@ -257,6 +306,22 @@ export const storeEventBatch = internalMutation({
         if (existing) {
           await ctx.db.patch(existing._id, event);
           ids.push(existing._id);
+          await captureOutgoingEvent(ctx, {
+            userId: event.userId,
+            provider: source?.provider,
+            eventType: event.category === "workout" ? "workout.upserted" : "sleep.upserted",
+            subjectKind: event.category === "workout" ? "workout" : "sleep",
+            subjectId: String(existing._id),
+            idempotencyKey: `${event.category}:${source?.provider ?? "unknown"}:${event.externalId ?? existing._id}:${outgoingEventFingerprint(event)}`,
+            data: {
+              eventId: String(existing._id),
+              category: event.category,
+              type: event.type,
+              startDatetime: event.startDatetime,
+              endDatetime: event.endDatetime,
+              externalId: event.externalId,
+            },
+          });
           continue;
         }
       }
@@ -272,10 +337,42 @@ export const storeEventBatch = internalMutation({
       if (existing) {
         await ctx.db.patch(existing._id, event);
         ids.push(existing._id);
+        await captureOutgoingEvent(ctx, {
+          userId: event.userId,
+          provider: source?.provider,
+          eventType: event.category === "workout" ? "workout.upserted" : "sleep.upserted",
+          subjectKind: event.category === "workout" ? "workout" : "sleep",
+          subjectId: String(existing._id),
+          idempotencyKey: `${event.category}:${source?.provider ?? "unknown"}:${event.externalId ?? existing._id}:${outgoingEventFingerprint(event)}`,
+          data: {
+            eventId: String(existing._id),
+            category: event.category,
+            type: event.type,
+            startDatetime: event.startDatetime,
+            endDatetime: event.endDatetime,
+            externalId: event.externalId,
+          },
+        });
         continue;
       }
       const id = await ctx.db.insert("events", event);
       ids.push(id);
+      await captureOutgoingEvent(ctx, {
+        userId: event.userId,
+        provider: source?.provider,
+        eventType: event.category === "workout" ? "workout.upserted" : "sleep.upserted",
+        subjectKind: event.category === "workout" ? "workout" : "sleep",
+        subjectId: String(id),
+        idempotencyKey: `${event.category}:${source?.provider ?? "unknown"}:${event.externalId ?? id}:${outgoingEventFingerprint(event)}`,
+        data: {
+          eventId: String(id),
+          category: event.category,
+          type: event.type,
+          startDatetime: event.startDatetime,
+          endDatetime: event.endDatetime,
+          externalId: event.externalId,
+        },
+      });
     }
     return ids;
   },
@@ -318,6 +415,20 @@ export const deleteByExternalId = internalMutation({
         .withIndex("by_event_external_id", (index) => index.eq("eventExternalId", args.externalId))
         .collect();
       for (const job of fileJobs) await ctx.db.delete(job._id);
+      const source = await ctx.db.get(event.dataSourceId);
+      await captureOutgoingEvent(ctx, {
+        userId: event.userId,
+        provider: source?.provider,
+        eventType: event.category === "workout" ? "workout.deleted" : "sleep.deleted",
+        subjectKind: event.category,
+        subjectId: String(event._id),
+        idempotencyKey: `${event.category}:${source?.provider ?? "unknown"}:${event.externalId ?? event._id}:deleted`,
+        data: {
+          eventId: String(event._id),
+          category: event.category,
+          externalId: event.externalId,
+        },
+      });
       await ctx.db.delete(event._id);
     }
   },

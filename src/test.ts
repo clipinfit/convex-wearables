@@ -19,6 +19,10 @@ export function register(
 ) {
   t.registerComponent("workflow", workflowTest.schema, workflowTest.modules);
   workpoolTest.register(t, "workflow/workpool");
+  t.registerComponent("providerWebhookWorkflow", workflowTest.schema, workflowTest.modules);
+  workpoolTest.register(t, "providerWebhookWorkflow/workpool");
+  t.registerComponent("outgoingWebhookWorkflow", workflowTest.schema, workflowTest.modules);
+  workpoolTest.register(t, "outgoingWebhookWorkflow/workpool");
   t.registerComponent(name, schema, modules);
 }
 

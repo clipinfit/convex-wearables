@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery, query } from "./_generated/server";
+import { captureOutgoingEvent } from "./outgoingWebhooks";
 import { providerName, syncJobStatus } from "./schema";
 
 const syncPhase = v.union(v.literal("events"), v.literal("dataPoints"), v.literal("summaries"));
@@ -95,7 +96,7 @@ export const create = internalMutation({
   },
   returns: v.id("syncJobs"),
   handler: async (ctx, args) => {
-    return await ctx.db.insert("syncJobs", {
+    const id = await ctx.db.insert("syncJobs", {
       connectionId: args.connectionId,
       userId: args.userId,
       provider: args.provider,
@@ -108,6 +109,22 @@ export const create = internalMutation({
       windowEnd: args.windowEnd,
       attempt: 0,
     });
+    await captureOutgoingEvent(ctx, {
+      userId: args.userId,
+      provider: args.provider,
+      eventType: "sync.started",
+      subjectKind: "sync",
+      subjectId: String(id),
+      idempotencyKey: `sync:${args.idempotencyKey}:started`,
+      data: {
+        syncJobId: String(id),
+        provider: args.provider,
+        mode: args.mode,
+        windowStart: args.windowStart,
+        windowEnd: args.windowEnd,
+      },
+    });
+    return id;
   },
 });
 
@@ -124,6 +141,7 @@ export const updateStatus = internalMutation({
     currentPhase: v.optional(syncPhase),
   },
   handler: async (ctx, args) => {
+    const job = await ctx.db.get(args.jobId);
     const updates: Record<string, unknown> = { status: args.status };
     if (args.error !== undefined) updates.error = args.error;
     if (args.recordsProcessed !== undefined) updates.recordsProcessed = args.recordsProcessed;
@@ -136,5 +154,20 @@ export const updateStatus = internalMutation({
       updates.completedAt = Date.now();
     }
     await ctx.db.patch(args.jobId, updates);
+    if (job && ["completed", "failed"].includes(args.status) && job.status !== args.status)
+      await captureOutgoingEvent(ctx, {
+        userId: job.userId,
+        provider: job.provider,
+        eventType: args.status === "completed" ? "sync.completed" : "sync.failed",
+        subjectKind: "sync",
+        subjectId: String(job._id),
+        idempotencyKey: `sync:${job.idempotencyKey}:${args.status}`,
+        data: {
+          syncJobId: String(job._id),
+          provider: job.provider,
+          status: args.status,
+          recordsProcessed: args.recordsProcessed,
+        },
+      });
   },
 });

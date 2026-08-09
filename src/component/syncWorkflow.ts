@@ -11,6 +11,7 @@ import { api, internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { action, internalAction, internalMutation } from "./_generated/server";
 import { assertIngestionAllowed } from "./lifecycle";
+import { captureOutgoingEvent } from "./outgoingWebhooks";
 import { isProviderApiError } from "./providers/oauth";
 import { getProvider } from "./providers/registry";
 import type {
@@ -259,6 +260,22 @@ export const requestConnectionSync = internalMutation({
       attempt: 0,
       windowStart: args.windowStart,
       windowEnd: args.windowEnd,
+    });
+
+    await captureOutgoingEvent(ctx, {
+      userId: connection.userId,
+      provider: connection.provider,
+      eventType: "sync.started",
+      subjectKind: "sync",
+      subjectId: String(syncJobId),
+      idempotencyKey: `sync:${idempotencyKey}:started`,
+      data: {
+        syncJobId: String(syncJobId),
+        provider: connection.provider,
+        mode,
+        windowStart: args.windowStart,
+        windowEnd: args.windowEnd,
+      },
     });
 
     const workflowId = await durableWorkflow.start(

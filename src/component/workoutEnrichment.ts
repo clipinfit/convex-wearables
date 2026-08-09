@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
 import { internalMutation, type MutationCtx, mutation, query } from "./_generated/server";
 import { assertIngestionAllowed } from "./lifecycle";
+import { captureOutgoingEvent, outgoingEventFingerprint } from "./outgoingWebhooks";
 import { providerName } from "./schema";
 
 export const workoutSegmentKind = v.union(
@@ -123,6 +124,20 @@ async function replaceDetails(
       schemaVersion: 1,
     });
   }
+  await captureOutgoingEvent(ctx, {
+    userId: args.userId,
+    provider: args.provider,
+    eventType: "workout.enriched",
+    subjectKind: "workout",
+    subjectId: String(args.eventId),
+    idempotencyKey: `workout:${args.eventId}:enriched:${outgoingEventFingerprint({ segments: args.segments, zones: args.zones })}`,
+    data: {
+      eventId: String(args.eventId),
+      provider: args.provider,
+      segmentCount: args.segments.length,
+      zoneCount: args.zones.length,
+    },
+  });
   return { segments: args.segments.length, zones: args.zones.length };
 }
 

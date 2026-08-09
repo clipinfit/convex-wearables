@@ -1,14 +1,45 @@
 ---
 date: 2026-08-01
-status: PLANNED
+status: IMPLEMENTED
 priority: P1
 semver: minor
-target_version: 0.11.0
+target_version: 0.12.0
 owner_repo: convex-wearables
 reference_repo: ../open-wearables
 ---
 
 # Durable Outgoing Events and Self-Service Webhooks PRD
+
+> **Implementation status:** Complete locally for the planned `0.12.0` minor
+> release. Versioning, publishing, and host adoption remain separate actions.
+
+## Final implementation decisions
+
+- Tenant membership is persisted explicitly through host-authorized
+  `setWebhookUserTenant` calls, allowing component write mutations to capture
+  the tenant-scoped outbox event transactionally.
+- Secrets use AES-256-GCM with the deployment-provided
+  `CONVEX_WEARABLES_WEBHOOK_ENCRYPTION_KEY`; external delivery fails closed
+  when the key is missing or invalid.
+- Native Node actions resolve and reject unsafe DNS results, then pin the
+  validated public IP into the TLS request while retaining the original SNI
+  hostname. Redirects are never followed.
+- Internal callbacks and external delivery share one dedicated ten-slot
+  Workflow/Workpool. Endpoint claims limit each endpoint to two concurrent
+  requests.
+- Stored callback handles carry an explicit action/mutation kind. Callback
+  execution retries four times with exponential backoff after endpoint fan-out
+  has committed, so callback failure cannot suppress external delivery.
+- Each external delivery claim has a unique two-minute lease token and a
+  transactionally scheduled watchdog. The network action renews the lease when
+  it starts; abandoned claims are retried within the attempt budget and stale
+  worker completions are rejected by token comparison.
+- Reference payloads are the default. Snapshot mode is an explicit global and
+  endpoint opt-in; the initial contract remains bounded and excludes routes,
+  credentials, raw provider payloads, raw files, menstrual data, and raw sleep
+  stages.
+- Recovery and replay use host-visible durable operations, not unbounded
+  synchronous scans.
 
 ## Summary
 
@@ -179,15 +210,10 @@ component without a host authorization boundary.
 
 ### 1. Internal host callback
 
-Retain `onDataSynced` for compatibility and add an optional typed callback:
-
-```ts
-onWearablesEvent?: FunctionReference<
-  "mutation" | "action",
-  "internal",
-  WearablesEventEnvelope
->;
-```
+Retain `onDataSynced` for compatibility and accept a stored Convex function
+handle plus its explicit `"mutation" | "action"` kind through
+`configureOutgoingWebhooks`. The referenced function accepts a
+`WearablesEventEnvelope`.
 
 The callback is useful for host-owned workflows and should receive the same
 stable envelope used by external delivery. Dispatch is scheduled after the
@@ -225,6 +251,8 @@ type WearablesEventEnvelope = {
   occurredAt: number;         // unix milliseconds
   tenantId: string;
   userId?: string;
+  provider?: ProviderName;
+  payloadJson?: string; // immutable endpoint-selected canonical retry body
   provider?: ProviderName;
   subject: {
     kind: "connection" | "sync" | "workout" | "sleep" |
@@ -387,7 +415,8 @@ This is the transactional outbox and canonical replay body.
   subjectKind: string;
   subjectId?: string;
   idempotencyKey: string;
-  payloadJson: string;        // canonical, bounded serialized envelope
+  payloadJson: string;        // bounded snapshot-capable canonical envelope
+  referencePayloadJson?: string; // bounded reference-only envelope
   occurredAt: number;
   fanoutStatus: "pending" | "running" | "completed" | "failed";
   fanoutCursor?: string;
@@ -398,7 +427,7 @@ This is the transactional outbox and canonical replay body.
 Indexes:
 
 - `by_tenant_time`
-- `by_idempotency_key`
+- `by_tenant_idempotency_key`
 - `by_fanout_status`
 - `by_expiry`
 
@@ -432,7 +461,7 @@ Indexes:
 - `by_event_endpoint` for idempotent fan-out
 - `by_status_next_attempt`
 - `by_endpoint_status`
-- `by_tenant_time`
+- tenant/endpoint/status/time paging indexes
 
 ### `outgoingWebhookAttempts`
 
@@ -816,7 +845,7 @@ receiver error messages in general operational views.
 
 ### Phase B: internal host callback
 
-- Add `onWearablesEvent` without removing `onDataSynced`.
+- Add a typed stored event callback handle without removing `onDataSynced`.
 - Use isolated bounded retry handling.
 - Document at-least-once/idempotency semantics.
 
@@ -844,7 +873,7 @@ durable delivery, signing, SSRF protection, deletion, and retention are ready.
 
 ## Migration and Existing Consumer Upgrade Path
 
-Expected release: `0.11.0`, assuming workout enrichment ships as `0.10.0`.
+Expected release: `0.12.0`; live provider webhooks shipped as `0.11.0`.
 
 This is a minor release because all APIs and schema are additive and outgoing
 delivery is disabled by default.
@@ -862,8 +891,9 @@ No existing health-data row requires rewriting. Existing consumers update the
 package and deploy the component schema. They need no environment variables,
 routes, callbacks, or endpoint migrations while the feature remains disabled.
 
-To enable internal callbacks, a consumer adds `onWearablesEvent` while retaining
-`onDataSynced` during the compatibility period.
+To enable internal callbacks, a consumer stores the typed host function handle
+and its action/mutation kind while retaining `onDataSynced` during the
+compatibility period.
 
 To enable external delivery, a consumer must additionally:
 
@@ -950,7 +980,7 @@ to existing subscriptions.
 ### Compatibility and load
 
 - existing consumers with no webhook configuration behave exactly as before.
-- `onDataSynced` and `onWearablesEvent` coexist.
+- `onDataSynced` and the stored typed event callback coexist.
 - fan-out, delivery, and retry are bounded under many tenants/endpoints.
 - delivery work cannot starve sync, deletion, FIT processing, or time-series
   maintenance.

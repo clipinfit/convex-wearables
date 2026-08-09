@@ -102,6 +102,23 @@ export const providerWebhookRegistrationStatus = v.union(
   v.literal("error"),
 );
 
+export const outgoingWebhookEndpointStatus = v.union(
+  v.literal("pending_verification"),
+  v.literal("active"),
+  v.literal("paused"),
+  v.literal("disabled"),
+  v.literal("deleted"),
+);
+
+export const outgoingWebhookDeliveryStatus = v.union(
+  v.literal("pending"),
+  v.literal("delivering"),
+  v.literal("retry_scheduled"),
+  v.literal("succeeded"),
+  v.literal("failed"),
+  v.literal("canceled"),
+);
+
 /**
  * Supported rollup aggregations.
  */
@@ -477,6 +494,158 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_provider", ["provider"]),
 
+  // Optional tenant mapping and durable outgoing event configuration.
+  outgoingWebhookConfiguration: defineTable({
+    key: v.literal("default"),
+    captureEnabled: v.boolean(),
+    externalDeliveryEnabled: v.boolean(),
+    snapshotPayloadsEnabled: v.boolean(),
+    internalCallbackHandle: v.optional(v.string()),
+    internalCallbackKind: v.optional(v.union(v.literal("action"), v.literal("mutation"))),
+    maxEndpointsPerTenant: v.number(),
+    maxEndpointsPerUser: v.number(),
+    eventRetentionMs: v.number(),
+    updatedAt: v.number(),
+  }).index("by_key", ["key"]),
+
+  outgoingWebhookUserTenants: defineTable({
+    userId: v.string(),
+    tenantId: v.string(),
+    updatedAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_tenant_user", ["tenantId", "userId"]),
+
+  outgoingWebhookEndpoints: defineTable({
+    tenantId: v.string(),
+    scope: v.union(v.literal("tenant"), v.literal("user")),
+    userId: v.optional(v.string()),
+    url: v.string(),
+    description: v.optional(v.string()),
+    eventTypes: v.array(v.string()),
+    payloadMode: v.union(v.literal("reference"), v.literal("snapshot")),
+    status: outgoingWebhookEndpointStatus,
+    encryptedSigningSecret: v.string(),
+    signingKeyVersion: v.number(),
+    previousEncryptedSigningSecret: v.optional(v.string()),
+    previousSecretValidUntil: v.optional(v.number()),
+    consecutiveFailureDays: v.number(),
+    failureMessageCount: v.number(),
+    firstRecentFailureAt: v.optional(v.number()),
+    lastSuccessAt: v.optional(v.number()),
+    lastFailureAt: v.optional(v.number()),
+    disabledReason: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_tenant_status", ["tenantId", "status"])
+    .index("by_tenant_user_status", ["tenantId", "userId", "status"])
+    .index("by_tenant_time", ["tenantId", "createdAt"])
+    .index("by_status", ["status"]),
+
+  outgoingWebhookEvents: defineTable({
+    eventPublicId: v.string(),
+    tenantId: v.string(),
+    userId: v.optional(v.string()),
+    provider: v.optional(providerName),
+    eventType: v.string(),
+    eventVersion: v.number(),
+    subjectKind: v.string(),
+    subjectId: v.optional(v.string()),
+    idempotencyKey: v.string(),
+    payloadJson: v.string(),
+    referencePayloadJson: v.optional(v.string()),
+    occurredAt: v.number(),
+    fanoutStatus: v.union(
+      v.literal("pending"),
+      v.literal("running"),
+      v.literal("completed"),
+      v.literal("failed"),
+    ),
+    fanoutCursor: v.optional(v.string()),
+    workflowId: v.optional(v.string()),
+    expiresAt: v.number(),
+  })
+    .index("by_tenant_time", ["tenantId", "occurredAt"])
+    .index("by_tenant_user_time", ["tenantId", "userId", "occurredAt"])
+    .index("by_tenant_user_provider_time", ["tenantId", "userId", "provider", "occurredAt"])
+    .index("by_tenant_idempotency_key", ["tenantId", "idempotencyKey"])
+    .index("by_fanout_status", ["fanoutStatus"])
+    .index("by_expiry", ["expiresAt"]),
+
+  outgoingWebhookDeliveries: defineTable({
+    eventId: v.id("outgoingWebhookEvents"),
+    endpointId: v.id("outgoingWebhookEndpoints"),
+    tenantId: v.string(),
+    userId: v.optional(v.string()),
+    provider: v.optional(providerName),
+    payloadJson: v.optional(v.string()),
+    status: outgoingWebhookDeliveryStatus,
+    attemptCount: v.number(),
+    nextAttemptAt: v.optional(v.number()),
+    lockedAt: v.optional(v.number()),
+    leaseToken: v.optional(v.string()),
+    lastResponseStatus: v.optional(v.number()),
+    lastErrorCode: v.optional(v.string()),
+    lastAttemptAt: v.optional(v.number()),
+    succeededAt: v.optional(v.number()),
+    failedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_event_endpoint", ["eventId", "endpointId"])
+    .index("by_status_next_attempt", ["status", "nextAttemptAt"])
+    .index("by_endpoint_status", ["endpointId", "status"])
+    .index("by_endpoint_status_time", ["endpointId", "status", "createdAt"])
+    .index("by_tenant_status_time", ["tenantId", "status", "createdAt"])
+    .index("by_tenant_endpoint_time", ["tenantId", "endpointId", "createdAt"])
+    .index("by_tenant_endpoint_status_time", ["tenantId", "endpointId", "status", "createdAt"])
+    .index("by_tenant_time", ["tenantId", "createdAt"]),
+
+  outgoingWebhookAttempts: defineTable({
+    deliveryId: v.id("outgoingWebhookDeliveries"),
+    endpointId: v.id("outgoingWebhookEndpoints"),
+    tenantId: v.string(),
+    attempt: v.number(),
+    startedAt: v.number(),
+    completedAt: v.number(),
+    durationMs: v.number(),
+    outcome: v.union(
+      v.literal("succeeded"),
+      v.literal("retryable_failure"),
+      v.literal("permanent_failure"),
+    ),
+    responseStatus: v.optional(v.number()),
+    errorCode: v.optional(v.string()),
+    expiresAt: v.number(),
+  })
+    .index("by_delivery_time", ["deliveryId", "startedAt"])
+    .index("by_endpoint_time", ["endpointId", "startedAt"])
+    .index("by_expiry", ["expiresAt"]),
+
+  outgoingWebhookOperations: defineTable({
+    tenantId: v.string(),
+    endpointId: v.id("outgoingWebhookEndpoints"),
+    kind: v.union(v.literal("recover_failed"), v.literal("replay_missing")),
+    since: v.number(),
+    until: v.optional(v.number()),
+    cursor: v.optional(v.string()),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("running"),
+      v.literal("completed"),
+      v.literal("failed"),
+    ),
+    processed: v.number(),
+    workflowId: v.optional(v.string()),
+    errorCode: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_tenant_time", ["tenantId", "createdAt"])
+    .index("by_endpoint_status", ["endpointId", "status"]),
+
   // -------------------------------------------------------------------------
   // Pending Garmin Push Payloads — short-lived replay queue for OAuth reconnect
   // races where Garmin pushes data before the connection is active again.
@@ -677,6 +846,7 @@ export default defineSchema({
       oauthStates: v.number(),
       pendingGarminPushPayloads: v.number(),
       providerWebhookReceipts: v.optional(v.number()),
+      outgoingWebhookState: v.optional(v.number()),
       timeSeriesPolicyAssignments: v.number(),
       priorDataDeletionOperations: v.number(),
     }),

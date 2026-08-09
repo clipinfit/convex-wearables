@@ -11,6 +11,7 @@ import {
   mutation,
   query,
 } from "./_generated/server";
+import { captureOutgoingEvent } from "./outgoingWebhooks";
 import { isProviderApiError } from "./providers/oauth";
 import { getProvider } from "./providers/registry";
 import type { ProviderCredentials } from "./providers/types";
@@ -41,6 +42,7 @@ const deletedCountsValidator = v.object({
   oauthStates: v.number(),
   pendingGarminPushPayloads: v.number(),
   providerWebhookReceipts: v.optional(v.number()),
+  outgoingWebhookState: v.optional(v.number()),
   timeSeriesPolicyAssignments: v.number(),
   priorDataDeletionOperations: v.number(),
 });
@@ -51,6 +53,7 @@ type DeletionPhase = keyof DeletedCounts;
 const DELETION_PHASES: readonly DeletionPhase[] = [
   "pendingGarminPushPayloads",
   "providerWebhookReceipts",
+  "outgoingWebhookState",
   "dataPoints",
   "timeSeriesRollups",
   "timeSeriesSeriesState",
@@ -87,6 +90,7 @@ function emptyDeletedCounts(): DeletedCounts {
     oauthStates: 0,
     pendingGarminPushPayloads: 0,
     providerWebhookReceipts: 0,
+    outgoingWebhookState: 0,
     timeSeriesPolicyAssignments: 0,
     priorDataDeletionOperations: 0,
   };
@@ -205,6 +209,16 @@ async function startDeletion(
     deletedCounts: emptyDeletedCounts(),
     createdAt: now,
     updatedAt: now,
+  });
+
+  await captureOutgoingEvent(ctx, {
+    userId: args.userId,
+    provider: args.provider,
+    eventType: "data_deletion.started",
+    subjectKind: "deletion",
+    subjectId: String(operationId),
+    idempotencyKey: `deletion:${idempotencyKey}:started`,
+    data: { operationId: String(operationId), scope: args.scope, provider: args.provider },
   });
 
   const workflowId = await durableWorkflow.start(
@@ -465,6 +479,43 @@ export const prepareDeletionScope = internalMutation({
       });
     }
 
+    const tenantMapping = await ctx.db
+      .query("outgoingWebhookUserTenants")
+      .withIndex("by_user", (index) => index.eq("userId", operation.userId))
+      .first();
+    if (tenantMapping) {
+      const queuedEvents = await ctx.db
+        .query("outgoingWebhookEvents")
+        .withIndex("by_tenant_user_time", (index) =>
+          index.eq("tenantId", tenantMapping.tenantId).eq("userId", operation.userId),
+        )
+        .collect();
+      for (const event of queuedEvents) {
+        if (operation.scope === "provider" && event.provider !== operation.provider) continue;
+        await ctx.db.patch(event._id, {
+          payloadJson: "{}",
+          referencePayloadJson: "{}",
+          fanoutStatus: "completed",
+        });
+        const deliveries = await ctx.db
+          .query("outgoingWebhookDeliveries")
+          .withIndex("by_event_endpoint", (index) => index.eq("eventId", event._id))
+          .collect();
+        for (const delivery of deliveries) {
+          if (["pending", "delivering", "retry_scheduled"].includes(delivery.status)) {
+            await ctx.db.patch(delivery._id, {
+              status: "canceled",
+              payloadJson: "{}",
+              nextAttemptAt: undefined,
+              lockedAt: undefined,
+              leaseToken: undefined,
+              updatedAt: Date.now(),
+            });
+          }
+        }
+      }
+    }
+
     await ctx.db.patch(operation._id, {
       status: "running",
       currentPhase: "preparing",
@@ -620,6 +671,67 @@ async function deleteScopedBatchHandler(
       for (const row of rows) await ctx.db.delete(row._id);
       deleted += rows.length;
       if (deleted >= DELETION_BATCH_SIZE) break;
+    }
+  } else if (args.phase === "outgoingWebhookState") {
+    const mapping = await ctx.db
+      .query("outgoingWebhookUserTenants")
+      .withIndex("by_user", (index) => index.eq("userId", operation.userId))
+      .first();
+    if (mapping) {
+      const events =
+        operation.scope === "provider"
+          ? await ctx.db
+              .query("outgoingWebhookEvents")
+              .withIndex("by_tenant_user_provider_time", (index) =>
+                index
+                  .eq("tenantId", mapping.tenantId)
+                  .eq("userId", operation.userId)
+                  .eq("provider", requireDeletionProvider(operation)),
+              )
+              .take(DELETION_BATCH_SIZE)
+          : await ctx.db
+              .query("outgoingWebhookEvents")
+              .withIndex("by_tenant_user_time", (index) =>
+                index.eq("tenantId", mapping.tenantId).eq("userId", operation.userId),
+              )
+              .take(DELETION_BATCH_SIZE);
+      for (const event of events) {
+        const deliveries = await ctx.db
+          .query("outgoingWebhookDeliveries")
+          .withIndex("by_event_endpoint", (index) => index.eq("eventId", event._id))
+          .collect();
+        for (const delivery of deliveries) {
+          const attempts = await ctx.db
+            .query("outgoingWebhookAttempts")
+            .withIndex("by_delivery_time", (index) => index.eq("deliveryId", delivery._id))
+            .collect();
+          for (const attempt of attempts) await ctx.db.delete(attempt._id);
+          await ctx.db.delete(delivery._id);
+        }
+        await ctx.db.delete(event._id);
+        deleted++;
+      }
+      if (operation.scope === "user" && events.length < DELETION_BATCH_SIZE) {
+        const endpoints = await ctx.db
+          .query("outgoingWebhookEndpoints")
+          .withIndex("by_tenant_user_status", (index) =>
+            index.eq("tenantId", mapping.tenantId).eq("userId", operation.userId),
+          )
+          .collect();
+        for (const endpoint of endpoints) {
+          await ctx.db.patch(endpoint._id, {
+            status: "deleted",
+            encryptedSigningSecret: "deleted",
+            previousEncryptedSigningSecret: undefined,
+            previousSecretValidUntil: undefined,
+            url: "https://deleted.invalid/",
+            description: undefined,
+            eventTypes: [],
+            updatedAt: Date.now(),
+          });
+          deleted++;
+        }
+      }
     }
   } else if (args.phase === "dailySummaries") {
     let rows =
@@ -825,6 +937,29 @@ export const handleDataDeletionComplete = internalMutation({
         updatedAt: now,
         completedAt: now,
       });
+      await captureOutgoingEvent(ctx, {
+        userId: operation.userId,
+        provider: operation.provider,
+        eventType: hasWarnings
+          ? "data_deletion.completed_with_warnings"
+          : "data_deletion.completed",
+        subjectKind: "deletion",
+        subjectId: String(operation._id),
+        idempotencyKey: `deletion:${operation.idempotencyKey}:${hasWarnings ? "completed_with_warnings" : "completed"}`,
+        data: {
+          operationId: String(operation._id),
+          scope: operation.scope,
+          provider: operation.provider,
+          status: hasWarnings ? "completed_with_warnings" : "completed",
+        },
+      });
+      if (operation.scope === "user") {
+        const mapping = await ctx.db
+          .query("outgoingWebhookUserTenants")
+          .withIndex("by_user", (index) => index.eq("userId", operation.userId))
+          .first();
+        if (mapping) await ctx.db.delete(mapping._id);
+      }
       return null;
     }
 

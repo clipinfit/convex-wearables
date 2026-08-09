@@ -39,6 +39,10 @@ import type {
   LiveProviderWebhookRoutesConfig,
   LiveSyncMode,
   LiveWebhookProviderName,
+  OutgoingWebhookDelivery,
+  OutgoingWebhookDeliveryStatus,
+  OutgoingWebhookEndpoint,
+  OutgoingWebhookPayloadMode,
   ProviderCapabilities,
   ProviderCapabilityInfo,
   ProviderConfiguration,
@@ -81,6 +85,8 @@ import type {
   TimeSeriesPolicyRuleInput,
   UserTimeSeriesPolicyPreset,
   WearablesConfig,
+  WearablesEventEnvelope,
+  WearablesEventType,
   WorkoutEnrichment,
   WorkoutSegment,
   WorkoutSegmentInput,
@@ -127,6 +133,10 @@ export type {
   LiveProviderWebhookRoutesConfig,
   LiveSyncMode,
   LiveWebhookProviderName,
+  OutgoingWebhookDelivery,
+  OutgoingWebhookDeliveryStatus,
+  OutgoingWebhookEndpoint,
+  OutgoingWebhookPayloadMode,
   ProviderCapabilities,
   ProviderCapabilityInfo,
   ProviderConfiguration,
@@ -169,6 +179,8 @@ export type {
   TimeSeriesPolicyRuleInput,
   UserTimeSeriesPolicyPreset,
   WearablesConfig,
+  WearablesEventEnvelope,
+  WearablesEventType,
   WorkoutEnrichment,
   WorkoutSegment,
   WorkoutSegmentInput,
@@ -867,6 +879,222 @@ export class WearablesClient {
       this.component.providerWebhooks.reconcilePolarWebhookRegistration,
       {},
     );
+  }
+
+  // -----------------------------------------------------------------------
+  // Durable outgoing events and self-service webhooks
+  // -----------------------------------------------------------------------
+
+  async configureOutgoingWebhooks(
+    ctx: MutationRunner,
+    args: {
+      captureEnabled: boolean;
+      externalDeliveryEnabled?: boolean;
+      snapshotPayloadsEnabled?: boolean;
+      internalCallbackHandle?: string;
+      internalCallbackKind?: "action" | "mutation";
+      clearInternalCallback?: boolean;
+      maxEndpointsPerTenant?: number;
+      maxEndpointsPerUser?: number;
+      eventRetentionMs?: number;
+    },
+  ): Promise<null> {
+    return await ctx.runMutation(this.component.outgoingWebhooks.configureOutgoingWebhooks, args);
+  }
+
+  async getOutgoingWebhookStatus(ctx: QueryRunner) {
+    return await ctx.runQuery(this.component.outgoingWebhooks.getOutgoingWebhookStatus, {});
+  }
+
+  async getOutgoingWebhookRuntimeStatus(ctx: ActionRunner) {
+    return await ctx.runAction(
+      this.component.outgoingWebhookActions.getOutgoingWebhookRuntimeStatus,
+      {},
+    );
+  }
+
+  async setWebhookUserTenant(
+    ctx: MutationRunner,
+    args: { userId: string; tenantId: string },
+  ): Promise<null> {
+    return await ctx.runMutation(this.component.outgoingWebhooks.setWebhookUserTenant, args);
+  }
+
+  async createWebhookEndpoint(
+    ctx: ActionRunner,
+    args: {
+      tenantId: string;
+      scope: "tenant" | "user";
+      userId?: string;
+      url: string;
+      description?: string;
+      eventTypes: string[];
+      payloadMode?: OutgoingWebhookPayloadMode;
+    },
+  ): Promise<{ endpointId: string; status: "pending_verification"; signingSecret: string }> {
+    return (await ctx.runAction(
+      this.component.outgoingWebhookActions.createWebhookEndpoint,
+      args,
+    )) as { endpointId: string; status: "pending_verification"; signingSecret: string };
+  }
+
+  async verifyWebhookEndpoint(ctx: ActionRunner, args: { tenantId: string; endpointId: string }) {
+    return await ctx.runAction(this.component.outgoingWebhookActions.verifyWebhookEndpoint, args);
+  }
+
+  async updateWebhookEndpointUrl(
+    ctx: ActionRunner,
+    args: { tenantId: string; endpointId: string; url: string },
+  ): Promise<null> {
+    return await ctx.runAction(
+      this.component.outgoingWebhookActions.updateWebhookEndpointUrl,
+      args,
+    );
+  }
+
+  async updateWebhookEndpoint(
+    ctx: MutationRunner,
+    args: {
+      tenantId: string;
+      endpointId: string;
+      description?: string;
+      eventTypes?: string[];
+      payloadMode?: OutgoingWebhookPayloadMode;
+    },
+  ): Promise<null> {
+    return await ctx.runMutation(this.component.outgoingWebhooks.updateWebhookEndpoint, args);
+  }
+
+  async listWebhookEndpoints(
+    ctx: QueryRunner,
+    args: { tenantId: string; userId?: string; before?: number; limit?: number },
+  ): Promise<{ endpoints: OutgoingWebhookEndpoint[]; nextCursor: number | null }> {
+    return (await ctx.runQuery(this.component.outgoingWebhooks.listWebhookEndpoints, args)) as {
+      endpoints: OutgoingWebhookEndpoint[];
+      nextCursor: number | null;
+    };
+  }
+
+  async getWebhookEndpoint(
+    ctx: QueryRunner,
+    args: { tenantId: string; endpointId: string },
+  ): Promise<OutgoingWebhookEndpoint | null> {
+    return (await ctx.runQuery(
+      this.component.outgoingWebhooks.getWebhookEndpoint,
+      args,
+    )) as OutgoingWebhookEndpoint | null;
+  }
+
+  async pauseWebhookEndpoint(
+    ctx: MutationRunner,
+    args: { tenantId: string; endpointId: string },
+  ): Promise<null> {
+    return await ctx.runMutation(this.component.outgoingWebhooks.pauseWebhookEndpoint, args);
+  }
+  async resumeWebhookEndpoint(
+    ctx: MutationRunner,
+    args: { tenantId: string; endpointId: string },
+  ): Promise<null> {
+    return await ctx.runMutation(this.component.outgoingWebhooks.resumeWebhookEndpoint, args);
+  }
+  async deleteWebhookEndpoint(
+    ctx: MutationRunner,
+    args: { tenantId: string; endpointId: string },
+  ): Promise<null> {
+    return await ctx.runMutation(this.component.outgoingWebhooks.deleteWebhookEndpoint, args);
+  }
+
+  async rotateWebhookSecret(
+    ctx: ActionRunner,
+    args: { tenantId: string; endpointId: string; overlapMs?: number },
+  ): Promise<{ endpointId: string; signingSecret: string }> {
+    return await ctx.runAction(this.component.outgoingWebhookActions.rotateWebhookSecret, args);
+  }
+
+  async rewrapWebhookEndpointSecret(
+    ctx: ActionRunner,
+    args: { tenantId: string; endpointId: string },
+  ): Promise<null> {
+    return await ctx.runAction(
+      this.component.outgoingWebhookActions.rewrapWebhookEndpointSecret,
+      args,
+    );
+  }
+
+  async sendWebhookTest(
+    ctx: ActionRunner,
+    args: { tenantId: string; endpointId: string; eventType?: string },
+  ): Promise<string> {
+    return await ctx.runAction(this.component.outgoingWebhookActions.sendWebhookTest, args);
+  }
+
+  async listWearablesEventTypes(
+    ctx: QueryRunner,
+  ): Promise<{ version: 1; eventTypes: WearablesEventType[]; groups: string[] }> {
+    return (await ctx.runQuery(this.component.outgoingWebhooks.listWearablesEventTypes, {})) as {
+      version: 1;
+      eventTypes: WearablesEventType[];
+      groups: string[];
+    };
+  }
+
+  async listWebhookEvents(
+    ctx: QueryRunner,
+    args: { tenantId: string; userId?: string; before?: number; limit?: number },
+  ) {
+    return await ctx.runQuery(this.component.outgoingWebhooks.listWebhookEvents, args);
+  }
+
+  async listWebhookDeliveries(
+    ctx: QueryRunner,
+    args: {
+      tenantId: string;
+      endpointId?: string;
+      status?: OutgoingWebhookDeliveryStatus;
+      before?: number;
+      limit?: number;
+    },
+  ): Promise<{ deliveries: OutgoingWebhookDelivery[]; nextCursor: number | null }> {
+    return await ctx.runQuery(this.component.outgoingWebhooks.listWebhookDeliveries, args);
+  }
+
+  async listWebhookAttempts(
+    ctx: QueryRunner,
+    args: { tenantId: string; deliveryId: string; before?: number; limit?: number },
+  ) {
+    return await ctx.runQuery(this.component.outgoingWebhooks.listWebhookAttempts, args);
+  }
+
+  async retryWebhookDelivery(
+    ctx: MutationRunner,
+    args: { tenantId: string; deliveryId: string },
+  ): Promise<null> {
+    return await ctx.runMutation(this.component.outgoingWebhooks.retryWebhookDelivery, args);
+  }
+  async recoverFailedWebhookDeliveries(
+    ctx: MutationRunner,
+    args: { tenantId: string; endpointId: string; since: number },
+  ): Promise<{ operationId: string; workflowId: string }> {
+    return (await ctx.runMutation(
+      this.component.outgoingWebhooks.recoverFailedWebhookDeliveries,
+      args,
+    )) as unknown as { operationId: string; workflowId: string };
+  }
+  async replayMissingWebhookEvents(
+    ctx: MutationRunner,
+    args: { tenantId: string; endpointId: string; since: number; until?: number },
+  ): Promise<{ operationId: string; workflowId: string }> {
+    return (await ctx.runMutation(
+      this.component.outgoingWebhooks.replayMissingWebhookEvents,
+      args,
+    )) as unknown as { operationId: string; workflowId: string };
+  }
+
+  async getWebhookRecoveryOperation(
+    ctx: QueryRunner,
+    args: { tenantId: string; operationId: string },
+  ) {
+    return await ctx.runQuery(this.component.outgoingWebhooks.getWebhookRecoveryOperation, args);
   }
 
   /**

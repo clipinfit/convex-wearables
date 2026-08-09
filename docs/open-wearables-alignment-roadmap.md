@@ -45,8 +45,8 @@ component data needs no migration.
 | Released (`0.8.0`) | Provider lifecycle and durable deletion | [provider-lifecycle-deletion-prd.md](./provider-lifecycle-deletion-prd.md) | Released with bounded Workflow deletion, ingestion fencing, explicit provider deregistration, tests, and public MDX documentation. |
 | Released (`0.9.0`) | SDK ingestion resilience | [sdk-ingestion-resilience-prd.md](./sdk-ingestion-resilience-prd.md) | Released with versioned partial-safe SDK ingestion, bounded rejection reports, tests, and public documentation. |
 | Released (`0.10.0`) | Provider-neutral workout enrichment | [workout-enrichment-prd.md](./workout-enrichment-prd.md) | Released with provider-neutral segments/zones and opt-in Garmin FIT enrichment. |
-| Implemented (planned `0.11.0`) | Live provider webhooks | [polar-suunto-webhooks-prd.md](./polar-suunto-webhooks-prd.md) | Complete locally with secure receipt-first Polar, WHOOP v2, and Suunto inbound notifications, isolated durable processing, cleanup, deletion integration, tests, and docs. Not yet published. |
-| Next | Durable outgoing events and self-service webhooks | [outgoing-webhooks-prd.md](./outgoing-webhooks-prd.md) | Adds a shared typed event contract for host callbacks and authorized tenant/user HTTPS subscriptions, with signed delivery, durable retries, and recovery controls. |
+| Released (`0.11.0`) | Live provider webhooks | [polar-suunto-webhooks-prd.md](./polar-suunto-webhooks-prd.md) | Released with secure receipt-first Polar, WHOOP v2, and Suunto inbound notifications, isolated durable processing, cleanup, deletion integration, tests, and docs. |
+| Implemented (planned `0.12.0`) | Durable outgoing events and self-service webhooks | [outgoing-webhooks-prd.md](./outgoing-webhooks-prd.md) | Complete locally with a transactional event contract, internal callbacks, encrypted self-service endpoints, DNS-pinned delivery, durable retries/recovery, lifecycle cleanup, tests, and docs. Not yet published. |
 
 ## Deferred or demand-driven work
 

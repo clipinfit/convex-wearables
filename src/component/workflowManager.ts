@@ -33,3 +33,14 @@ export const providerWebhookWorkflow = new WorkflowManager(providerWebhookWorkfl
     },
   },
 });
+
+const outgoingWebhookWorkflowComponent =
+  components.outgoingWebhookWorkflow as unknown as WorkflowComponentApi<"outgoingWebhookWorkflow">;
+
+/** Isolated pool for callback fan-out and external network delivery. */
+export const outgoingWebhookWorkflow = new WorkflowManager(outgoingWebhookWorkflowComponent, {
+  workpoolOptions: {
+    maxParallelism: 10,
+    retryActionsByDefault: false,
+  },
+});

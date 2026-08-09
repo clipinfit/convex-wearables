@@ -4,5 +4,6 @@ import { defineComponent } from "convex/server";
 const component = defineComponent("wearables");
 component.use(workflow, { name: "workflow" });
 component.use(workflow, { name: "providerWebhookWorkflow" });
+component.use(workflow, { name: "outgoingWebhookWorkflow" });
 
 export default component;

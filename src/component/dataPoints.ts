@@ -11,6 +11,7 @@ import {
   query,
 } from "./_generated/server";
 import { assertIngestionAllowed } from "./lifecycle";
+import { captureOutgoingEvent, outgoingEventFingerprint } from "./outgoingWebhooks";
 import { providerName, timeSeriesAggregation } from "./schema";
 import {
   buildBuiltinFullTiers,
@@ -622,6 +623,40 @@ export const storeBatch = internalMutation({
     if (!source) throw new Error(`Data source ${args.dataSourceId} not found`);
     await assertIngestionAllowed(ctx, source);
     const result = await storePointsWithPolicy(ctx, args);
+    if (result.processedCount > 0) {
+      const first = args.points[0];
+      const last = args.points.at(-1);
+      await captureOutgoingEvent(ctx, {
+        userId: source.userId,
+        provider: source.provider,
+        eventType: `series.${args.seriesType}.upserted`,
+        subjectKind: "series",
+        subjectId: `${args.dataSourceId}:${args.seriesType}`,
+        idempotencyKey: `series:${args.dataSourceId}:${args.seriesType}:${outgoingEventFingerprint(args.points)}`,
+        data: {
+          dataSourceId: String(args.dataSourceId),
+          seriesType: args.seriesType,
+          count: result.processedCount,
+          startDatetime: first?.recordedAt,
+          endDatetime: last?.recordedAt,
+        },
+      });
+      await captureOutgoingEvent(ctx, {
+        userId: source.userId,
+        provider: source.provider,
+        eventType: "series.batch.upserted",
+        subjectKind: "series",
+        subjectId: String(args.dataSourceId),
+        idempotencyKey: `series-batch:${args.dataSourceId}:${args.seriesType}:${outgoingEventFingerprint(args.points)}`,
+        data: {
+          dataSourceId: String(args.dataSourceId),
+          seriesTypes: [args.seriesType],
+          count: result.processedCount,
+          startDatetime: first?.recordedAt,
+          endDatetime: last?.recordedAt,
+        },
+      });
+    }
     return result.processedCount;
   },
 });

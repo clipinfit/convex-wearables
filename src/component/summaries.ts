@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery, query } from "./_generated/server";
 import { assertIngestionAllowed } from "./lifecycle";
+import { captureOutgoingEvent, outgoingEventFingerprint } from "./outgoingWebhooks";
 import { providerName } from "./schema";
 
 const summaryMetricsValidator = {
@@ -164,16 +165,42 @@ export const upsert = internalMutation({
 
     if (existing) {
       await ctx.db.patch(existing._id, definedFields);
+      await captureOutgoingEvent(ctx, {
+        userId,
+        provider,
+        eventType: "summary.upserted",
+        subjectKind: "summary",
+        subjectId: String(existing._id),
+        idempotencyKey: `summary:${userId}:${provider}:${category}:${date}:${outgoingEventFingerprint(definedFields)}`,
+        data: { summaryId: String(existing._id), provider, category, date },
+        snapshotData: {
+          summaryId: String(existing._id),
+          provider,
+          category,
+          date,
+          metrics: definedFields,
+        },
+      });
       return existing._id;
     }
-
-    return await ctx.db.insert("dailySummaries", {
+    const id = await ctx.db.insert("dailySummaries", {
       userId,
       provider,
       date,
       category,
       ...definedFields,
     });
+    await captureOutgoingEvent(ctx, {
+      userId,
+      provider,
+      eventType: "summary.upserted",
+      subjectKind: "summary",
+      subjectId: String(id),
+      idempotencyKey: `summary:${userId}:${provider}:${category}:${date}:${outgoingEventFingerprint(definedFields)}`,
+      data: { summaryId: String(id), provider, category, date },
+      snapshotData: { summaryId: String(id), provider, category, date, metrics: definedFields },
+    });
+    return id;
   },
 });
 

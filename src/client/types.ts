@@ -64,6 +64,7 @@ export interface DataDeletionCounts {
   oauthStates: number;
   pendingGarminPushPayloads: number;
   providerWebhookReceipts?: number;
+  outgoingWebhookState?: number;
   timeSeriesPolicyAssignments: number;
   priorDataDeletionOperations: number;
 }
@@ -192,6 +193,88 @@ export interface WearablesConfig {
    * The host app can use this to trigger downstream processing.
    */
   onDataSynced?: unknown; // FunctionReference — typed loosely to avoid coupling
+}
+
+export type WearablesEventType =
+  | "connection.created"
+  | "connection.status_changed"
+  | "sync.started"
+  | "sync.completed"
+  | "sync.failed"
+  | "workout.upserted"
+  | "workout.enriched"
+  | "workout.deleted"
+  | "sleep.upserted"
+  | "sleep.deleted"
+  | "summary.upserted"
+  | "series.batch.upserted"
+  | `series.${string}.upserted`
+  | "data_deletion.started"
+  | "data_deletion.completed"
+  | "data_deletion.completed_with_warnings";
+
+export interface WearablesEventEnvelope {
+  id: string;
+  type: WearablesEventType;
+  version: 1;
+  occurredAt: number;
+  tenantId: string;
+  userId?: string;
+  provider?: ProviderName;
+  subject: {
+    kind: "connection" | "sync" | "workout" | "sleep" | "summary" | "series" | "deletion";
+    id?: string;
+  };
+  idempotencyKey: string;
+  data: Record<string, unknown>;
+  chunk?: { index: number; count: number };
+}
+
+export type OutgoingWebhookEndpointStatus =
+  | "pending_verification"
+  | "active"
+  | "paused"
+  | "disabled"
+  | "deleted";
+export type OutgoingWebhookDeliveryStatus =
+  | "pending"
+  | "delivering"
+  | "retry_scheduled"
+  | "succeeded"
+  | "failed"
+  | "canceled";
+export type OutgoingWebhookPayloadMode = "reference" | "snapshot";
+export interface OutgoingWebhookEndpoint {
+  _id: string;
+  tenantId: string;
+  scope: "tenant" | "user";
+  userId?: string;
+  url: string;
+  description?: string;
+  eventTypes: string[];
+  payloadMode: OutgoingWebhookPayloadMode;
+  status: OutgoingWebhookEndpointStatus;
+  signingKeyVersion: number;
+  hasQueryParameters?: boolean;
+  lastSuccessAt?: number;
+  lastFailureAt?: number;
+  disabledReason?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+export interface OutgoingWebhookDelivery {
+  _id: string;
+  eventId: string;
+  endpointId: string;
+  tenantId: string;
+  userId?: string;
+  status: OutgoingWebhookDeliveryStatus;
+  attemptCount: number;
+  nextAttemptAt?: number;
+  lastResponseStatus?: number;
+  lastErrorCode?: string;
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface GarminRoutesConfig {

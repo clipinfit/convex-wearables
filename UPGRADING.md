@@ -108,6 +108,44 @@ would be incorrect because this release adds public routes, actions, types,
 tables, and provider capabilities. A major release is unnecessary because all
 new routes are opt-in and existing behavior is preserved.
 
+## Version 0.12.0: durable outgoing events and self-service webhooks
+
+This planned minor release adds an optional transactional outbox, typed host
+callback, and signed tenant/user HTTPS subscriptions. Existing consumers are
+unchanged because event capture and external delivery default to disabled.
+
+The schema additions are additive: configuration and user/tenant mapping,
+endpoint, outbox event, delivery, attempt, and durable recovery-operation
+tables, plus a dedicated outgoing Workflow/Workpool child. No existing row
+rewrite is required.
+
+After updating, deploy Convex before enabling capture. A generic rollout is:
+
+1. Persist each participating user's authorized tenant mapping with
+   `setWebhookUserTenant`.
+2. Optionally create a host action or mutation handle for the typed event
+   callback and store it with `configureOutgoingWebhooks`, setting the matching
+   `internalCallbackKind`.
+3. Enable capture while leaving external delivery disabled.
+4. Generate a 32-byte master key and configure its base64 value as
+   `CONVEX_WEARABLES_WEBHOOK_ENCRYPTION_KEY`.
+5. Enable external delivery, add authenticated host wrappers, create one
+   endpoint, return its secret once, and complete signed verification.
+6. Monitor delivery/attempt state before exposing self-service management.
+
+Endpoint creation exports health data and remains authorization-agnostic at the
+component boundary. Hosts must enforce tenant/user scope, consent, entitlement,
+and privacy policy requirements. The component enforces persisted scope,
+reference-by-default payloads, secret encryption, HTTPS, public DNS/IP
+destinations, pinned resolution, request limits, retries, and deletion.
+
+Rollback: disable external delivery first, pause endpoints, allow or cancel
+queued deliveries, then disable capture/internal callbacks. Keep the additive
+tables deployed until retained payloads and attempts expire. This is `0.12.0`,
+not a patch, because it adds public APIs, schema, callbacks, and delivery
+behavior; it is not major because all behavior is opt-in and `onDataSynced`
+remains supported.
+
 ## Synthetic provider
 
 The proposed release after `0.4.0` is `0.5.0`. It adds `"synthetic"` to
