@@ -2,19 +2,15 @@
 date: 2026-08-01
 status: ACTIVE_ROADMAP
 owner_repo: convex-wearables
-reference_repo: ../open-wearables
-reference_revision: 44a268be623e81995e896b05ed93a56411ddf807
 ---
 
-# Open Wearables Alignment Roadmap
+# Component Evolution Roadmap
 
 ## Purpose
 
-This roadmap converts the July/August 2026 comparison with Open Wearables into an
-ordered local delivery plan. Open Wearables is a behavioral and architectural
-reference, not a source tree to copy wholesale. Convex-native workflows,
-component isolation, provider-aware summaries, synthetic data, and tiered
-time-series retention remain the local architecture.
+This roadmap records the component's ordered local delivery plan. Convex-native
+workflows, component isolation, provider-aware summaries, synthetic data, and
+tiered time-series retention remain the local architecture.
 
 No item in this roadmap authorizes publishing a package, changing a host app's
 dependency, or enabling a destructive policy. Those are separate operator
@@ -53,12 +49,13 @@ component data needs no migration.
 
 | Workstream | PRD | Decision |
 |---|---|---|
-| First-class health scores | [health-scores-prd.md](./health-scores-prd.md) | Deferred. Open Wearables supports score models, but score meaning, canonicalization, and AI eligibility currently belong more naturally to the consuming application. Revisit only with a provider-fidelity or multi-app portability requirement. |
+| Wearable provider expansion | [wearable-provider-expansion-roadmap.md](./wearable-provider-expansion-roadmap.md) | Deferred roadmap. If provider work resumes, start with Oura, run a Google Health API architecture spike, then evaluate Withings; keep Huawei, Ultrahuman, COROS, and Wahoo gated by access and demand. |
+| First-class health scores | [health-scores-prd.md](./health-scores-prd.md) | Deferred. Score meaning, canonicalization, and AI eligibility currently belong more naturally to the consuming application. Revisit only with a provider-fidelity or multi-app portability requirement. |
 | Unified sync observability | [sync-status-observability-prd.md](./sync-status-observability-prd.md) | Deferred for low incremental value. Workflow plus existing sync/backfill records already support CLIPIN's current UI and operational needs. |
 | Ultrahuman | [ultrahuman-provider-prd.md](./ultrahuman-provider-prd.md) | Demand-driven on partner access and a concrete consumer requirement. |
 | Shared provider accounts | [shared-provider-accounts-prd.md](./shared-provider-accounts-prd.md) | Demand-driven on an explicit multi-profile/shared-device product model. |
 | Raw provider payload capture | [raw-provider-payload-storage-prd.md](./raw-provider-payload-storage-prd.md) | Optional debugging capability with privacy and storage costs; not a default ingestion dependency. |
-| Semantic event retention | [event-retention-policy-prd.md](./event-retention-policy-prd.md) | Deferred and low priority. This is a Convex Wearables-only convenience API, not an upstream feature; consumers can implement bounded periodic event cleanup themselves. |
+| Semantic event retention | [event-retention-policy-prd.md](./event-retention-policy-prd.md) | Deferred and low priority. This is an optional component convenience API; consumers can implement bounded periodic event cleanup themselves. |
 
 ## Migration and upgrade matrix
 

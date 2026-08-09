@@ -12,7 +12,8 @@
   "types": "./dist/client/index.d.ts",
   "files": [
     "dist",
-    "src"
+    "src",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "exports": {
     "./package.json": "./package.json",

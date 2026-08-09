@@ -5,7 +5,6 @@ priority: P1
 semver: minor
 target_version: 0.12.0
 owner_repo: convex-wearables
-reference_repo: ../open-wearables
 ---
 
 # Durable Outgoing Events and Self-Service Webhooks PRD
@@ -59,10 +58,9 @@ partner integrations, user-owned software, and other processing that must
 happen after data changes.
 
 The external webhook system must be disabled by default, must never be required
-for ingestion success, and must not require Svix. Its behavior should preserve
-the useful guarantees demonstrated by Open Wearables and Svix while using
-Convex-native transactions, scheduling, actions, Workflow/Workpool primitives,
-and component-owned state.
+for ingestion success, and must not require Svix. It should provide established
+webhook delivery guarantees while using Convex-native transactions, scheduling,
+actions, Workflow/Workpool primitives, and component-owned state.
 
 ## Product Opportunity
 
@@ -108,41 +106,13 @@ convex-wearables commits normalized data
         +----> durable outbox -> filtered signed HTTPS webhooks
 ```
 
-## Open Wearables Reference Behavior
+## Prior Art and Local Architecture
 
-Open Wearables is the behavioral reference, not code to copy directly.
-
-Its current implementation:
-
-- emits connection, sync, workout, sleep, menstrual-cycle, grouped time-series,
-  and granular `series.<seriesType>.created` events;
-- dispatches asynchronously after data is stored;
-- uses a stable event ID for downstream idempotency;
-- scopes messages to `user.<user_id>` channels;
-- lets a developer create endpoints, filter event types, optionally scope an
-  endpoint to one user, retrieve a signing secret, send tests, inspect messages
-  and attempts, and replay failures;
-- includes time-series samples, splitting batches above 2,500 samples to stay
-  below its delivery-provider payload limit;
-- disables emission when outgoing webhooks are not configured;
-- uses a Celery submission task with late acknowledgement, two retries, and a
-  five-second retry delay when submission to Svix fails; and
-- delegates endpoint attempts, signatures, history, manual retries, and
-  endpoint health to Svix.
-
-Svix's documented default endpoint schedule is: immediately, 5 seconds,
-5 minutes, 30 minutes, 2 hours, 5 hours, 10 hours, and another 10 hours. A 2xx
-response is success; redirects and other statuses are failures. It supports an
-explicit receiver abort response, manual retry/recovery/replay, and disabling
-chronically failing endpoints. See the
-[Svix retry documentation](https://docs.svix.com/retries).
-
-The Convex implementation should match these user-visible guarantees without
-inheriting two weaknesses of the reference implementation:
-
-- failure to enqueue or reach Svix can currently drop an event; and
-- a single broadcast task fans out to every developer rather than capturing a
-  tenant-scoped event and its deliveries transactionally.
+Prior art from [Open Wearables](https://github.com/the-momentum/open-wearables)
+and [Svix](https://www.svix.com/) informed the delivery guarantees evaluated in
+this PRD. The resulting implementation is independent and Convex-native: it
+captures tenant-scoped events transactionally, owns endpoint and delivery state
+inside the component, and does not depend on either project.
 
 ## Goals
 
@@ -350,9 +320,8 @@ and HTTP requests.
   count, and start/end timestamps, but no samples.
 - An explicitly allowed `snapshot` event may include samples.
 - Default maximum: 500 samples and 256 KiB serialized JSON per event.
-- Configurable upper bound: 2,500 samples and 512 KiB, matching the useful
-  ceiling demonstrated by Open Wearables while staying below common webhook
-  gateway limits.
+- Configurable upper bound: 2,500 samples and 512 KiB, keeping payloads below
+  common webhook gateway limits.
 - Larger batches are split into deterministic chunks with `chunk.index` and
   `chunk.count`.
 - Every chunk has its own event ID and idempotency key derived from the logical
@@ -534,7 +503,8 @@ status.
 
 ## Retry Policy
 
-The default schedule mirrors Svix/Open Wearables endpoint behavior:
+The default schedule follows an escalating retry pattern commonly used by
+durable webhook systems:
 
 | Attempt | Delay after preceding failure | Approximate elapsed time |
 |---:|---:|---:|

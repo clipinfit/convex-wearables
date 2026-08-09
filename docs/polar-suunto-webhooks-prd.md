@@ -5,7 +5,6 @@ priority: P1
 semver: minor
 target_version: 0.11.0
 owner_repo: convex-wearables
-reference_repo: ../open-wearables
 ---
 
 # Polar, Suunto, and WHOOP Live Provider Webhooks PRD
@@ -99,25 +98,7 @@ When enabled for a provider:
 - disabling or not mounting the webhook route leaves current pull behavior
   unchanged.
 
-## Source Findings
-
-### Open Wearables
-
-The local Open Wearables reference implements a shared provider-webhook
-pipeline with provider-specific handlers. Its useful behaviors are:
-
-- signature verification before payload processing;
-- immediate acknowledgement followed by asynchronous queue processing;
-- lookup of a connection by provider-side user identity;
-- targeted resource fetching for notify-only providers;
-- provider-specific handling of update and delete events;
-- duplicate-safe normalized writes; and
-- pull support alongside webhook delivery.
-
-Open Wearables currently uses Celery for the queue. This component should carry
-over the behavior, not the infrastructure: Convex durable workflows,
-transactional scheduling, component tables, and isolated Workpool concurrency
-are the local equivalents.
+## Provider Requirements
 
 ### Polar AccessLink
 

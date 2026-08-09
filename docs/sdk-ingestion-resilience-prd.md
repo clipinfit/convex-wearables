@@ -34,13 +34,7 @@ strict validation inside storage mutations and introduce the behavior through
 a versioned ingestion boundary so existing callers retain their current
 all-or-nothing contract.
 
-## Source signal
-
-Open Wearables added SDK validation and request logging improvements in
-`2e3e6dd6`, logic to drop and log incorrect SDK rows in `3c077292`, and optional
-time-range hardening in `87f58931` in July 2026. Together these changes avoid
-rejecting a whole synchronization request for isolated malformed rows and make
-failures easier to diagnose.
+## Existing limitation
 
 The current component validates arrays with strict Convex validators at the
 public action boundary. One invalid row therefore rejects the action before the

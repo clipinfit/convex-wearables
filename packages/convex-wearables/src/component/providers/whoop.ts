@@ -87,7 +87,7 @@ interface WhoopBodyMeasurement {
   weight_kilogram?: number;
 }
 
-// Workout type mappings translated from the upstream Python list.
+// WHOOP sport names normalized into the component workout taxonomy.
 const WHOOP_TYPE_MAP: Record<string, string> = {
   running: "running",
   walking: "walking",

@@ -4,8 +4,6 @@ status: RELEASED
 semver: minor
 released_version: 0.13.0
 owner_repo: convex-wearables
-reference_repo: ../open-wearables
-reference_revision: 44a268be623e81995e896b05ed93a56411ddf807
 ---
 
 # Source-Aware Reads PRD
@@ -17,8 +15,10 @@ Convex Wearables stores independent provider, writer, and device streams under
 public `WearablesClient` without choosing a canonical source or suppressing
 cross-provider duplicates.
 
-The implementation is informed by Open Wearables' richer source metadata
-responses, adapted to Convex's document model and policy-aware rollup reads.
+Prior art: [Open Wearables](https://github.com/the-momentum/open-wearables)
+informed the provider/source provenance concepts evaluated here. Convex
+Wearables implements them independently through Convex document references and
+policy-aware rollup reads.
 
 ## Problem
 
@@ -158,7 +158,7 @@ Coverage includes:
 - Fumadocs source-aware reads guide;
 - Fumadocs client and data-model references;
 - `UPGRADING.md` migration and rollback guidance; and
-- alignment roadmap status.
+- component roadmap status.
 
 ## Acceptance criteria
 

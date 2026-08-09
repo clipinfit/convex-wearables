@@ -11,6 +11,17 @@ This repository is an npm workspace. The publishable component is in
 site is in [`apps/web`](./apps/web). The package keeps its conventional
 `src/component` path inside its workspace.
 
+## Inspiration
+
+Convex Wearables began with a simple idea: build something in the spirit of
+[Open Wearables](https://github.com/the-momentum/open-wearables), but natively
+for Convex. The projects are independent. We value its broad, provider-neutral
+approach and aim to offer a comparably capable integration surface while making
+our own architectural decisions around Convex components, transactions,
+workflows, reactive queries, and storage. Convex Wearables also adds
+Convex-native capabilities such as tiered time-series retention, durable
+lifecycle operations, and deterministic synthetic data.
+
 ## Features
 
 - **OAuth 2.0 flows** with PKCE support — authorize users, exchange tokens, auto-refresh

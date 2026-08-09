@@ -10,11 +10,11 @@ owner_repo: convex-wearables
 
 ## Status
 
-Deferred from the component pipeline. Open Wearables provides a legitimate
-reference implementation, but that alone is not a strong enough reason to make
-scores a framework primitive. In the current architecture, canonical score
-meaning, cross-source reconciliation, presentation, and AI-consent eligibility
-belong to the consuming application.
+Deferred from the component pipeline. Existing implementations demonstrate the
+concept, but that alone is not a strong enough reason to make scores a framework
+primitive. In the current architecture, canonical score meaning, cross-source
+reconciliation, presentation, and AI-consent eligibility belong to the
+consuming application.
 
 Revisit this PRD only if a concrete requirement emerges to preserve
 provider-authored score provenance across multiple consumers, or if several

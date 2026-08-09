@@ -30,13 +30,7 @@ This work separates three operations that must not be conflated:
 
 No operation runs automatically merely because a package is upgraded.
 
-## Source signal
-
-Open Wearables added provider-side deregistration for cloud providers in
-`069bf3bc` and a provider-scoped "remove all provider data" operation in
-`70b3a5b8` in July 2026. Its provider adapters include provider-specific
-revocation behavior instead of treating local token removal as equivalent to
-remote deregistration.
+## Existing limitation
 
 The current component has `disconnect` and `deleteAllUserData`, but:
 

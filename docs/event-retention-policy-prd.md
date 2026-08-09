@@ -4,21 +4,17 @@ status: DEFERRED
 priority: P3
 semver: minor
 owner_repo: convex-wearables
-reference_repo: ../open-wearables
 activation: explicit-preview-and-confirmation
 ---
 
 # Semantic Event Retention Policy PRD
 
-> **Convex Wearables-only, low-priority proposal.** Open Wearables does not
-> currently provide age-based retention for workout or sleep event records.
-> This is an optional convenience API proposed specifically for Convex
-> Wearables, not an upstream-alignment requirement or a prerequisite for other
-> roadmap work. A consumer can already implement periodic historical-event
-> cleanup with its own scheduled functions and component-facing deletion
-> wrappers. The component should implement this only if repeated consumer demand
-> shows that a shared, ownership-safe policy API is more valuable than leaving
-> cleanup orchestration to each consumer.
+> **Component-only, low-priority proposal.** This is an optional convenience API,
+> not a prerequisite for other roadmap work. A consumer can already implement
+> periodic historical-event cleanup with its own scheduled functions and
+> component-facing deletion wrappers. The component should implement this only
+> if repeated consumer demand shows that a shared, ownership-safe policy API is
+> more valuable than leaving cleanup orchestration to each consumer.
 
 ## Summary
 
@@ -49,12 +45,9 @@ useful lifecycle operation, but it does not unlock ingestion, provider support,
 or normalized data fidelity. Consumer-managed cleanup remains a legitimate and
 supported architectural choice.
 
-## Upstream Basis and Deliberate Extension
+## Existing Lifecycle Principles and Deliberate Extension
 
-Open Wearables is a lifecycle reference, but it does **not** currently provide
-age-based retention for its workout/sleep `EventRecord` rows.
-
-Its current archival service applies only to time-series rows:
+The component's existing storage policy applies only to time-series rows:
 
 - `archive_after_days` optionally aggregates old live samples into daily
   archive rows;
@@ -64,11 +57,7 @@ Its current archival service applies only to time-series rows:
 - work is bounded by row and wall-clock limits; and
 - unfinished cleanup continues during a later scheduled run.
 
-Open Wearables also protects explicit event deletion by loading the event,
-checking that its data source belongs to the requesting user, and relying on
-owned-detail cascade semantics.
-
-Convex Wearables should borrow those principles:
+Semantic event retention should follow the same safety principles:
 
 - destructive behavior is disabled until explicitly configured;
 - record age is based on the health record timestamp, not insertion time;
@@ -77,14 +66,9 @@ Convex Wearables should borrow those principles:
 - parent-owned detail records are deleted with their parent; and
 - time-series and semantic lifecycle domains remain separate.
 
-This PRD is therefore a Convex-native extension informed by Open Wearables, not
-a backport of an upstream event-retention feature.
-
-Reference implementation inspected:
-
-- `../open-wearables/backend/app/services/archival_service.py`
-- `../open-wearables/backend/app/repositories/archival_repository.py`
-- `../open-wearables/backend/app/services/event_record_service.py`
+This PRD deliberately extends lifecycle controls from dense time-series data to
+semantic workout and sleep records while keeping the two policy domains
+independent.
 
 ## Problem
 
@@ -581,8 +565,8 @@ Cascade order:
 4. delete any future registered event-owned child tables; and
 5. delete the event parent.
 
-This mirrors Open Wearables' ownership validation and owned-detail cascade
-semantics while making the cascade explicit for Convex tables.
+This makes ownership validation and the owned-detail cascade explicit for
+Convex tables.
 
 ## Concurrency and Lifecycle Interaction
 
@@ -903,8 +887,8 @@ not only in a separate privacy section.
 
 ## Acceptance Criteria
 
-- Open Wearables alignment is described accurately: upstream retention is
-  time-series-only, while this is a local semantic-event extension.
+- The proposal remains an optional semantic-event extension rather than a
+  prerequisite for other lifecycle work.
 - Event and time-series retention have separate rules, assignments, settings,
   cursors, activation, and deletion effects.
 - Default upgrade behavior retains every existing event forever.

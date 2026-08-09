@@ -6,6 +6,17 @@ A [Convex component](https://docs.convex.dev/components) for wearable device int
 
 Built as a drop-in module: install the component, pass your provider credentials, and start querying workouts, sleep sessions, heart rate, and 88 pre-defined health metrics — all in TypeScript, no backend glue code required.
 
+## Inspiration
+
+Convex Wearables began with a simple idea: build something in the spirit of
+[Open Wearables](https://github.com/the-momentum/open-wearables), but natively
+for Convex. The projects are independent. We value its broad, provider-neutral
+approach and aim to offer a comparably capable integration surface while making
+our own architectural decisions around Convex components, transactions,
+workflows, reactive queries, and storage. Convex Wearables also adds
+Convex-native capabilities such as tiered time-series retention, durable
+lifecycle operations, and deterministic synthetic data.
+
 ## Features
 
 - **OAuth 2.0 flows** with PKCE support — authorize users, exchange tokens, auto-refresh
