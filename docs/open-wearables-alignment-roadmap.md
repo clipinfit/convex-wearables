@@ -47,7 +47,7 @@ component data needs no migration.
 | Released (`0.10.0`) | Provider-neutral workout enrichment | [workout-enrichment-prd.md](./workout-enrichment-prd.md) | Released with provider-neutral segments/zones and opt-in Garmin FIT enrichment. |
 | Released (`0.11.0`) | Live provider webhooks | [polar-suunto-webhooks-prd.md](./polar-suunto-webhooks-prd.md) | Released with secure receipt-first Polar, WHOOP v2, and Suunto inbound notifications, isolated durable processing, cleanup, deletion integration, tests, and docs. |
 | Released (`0.12.0`) | Durable outgoing events and self-service webhooks | [outgoing-webhooks-prd.md](./outgoing-webhooks-prd.md) | Released with a transactional event contract, internal callbacks, encrypted self-service endpoints, DNS-pinned delivery, durable retries/recovery, lifecycle cleanup, tests, and docs. |
-| Implemented (planned `0.13.0`) | Source-aware reads | [source-aware-reads-prd.md](./source-aware-reads-prd.md) | Additive data-source listing and provenance-rich event/time-series reads preserve independent streams for consumer-owned canonicalization. |
+| Released (`0.13.0`) | Source-aware reads | [source-aware-reads-prd.md](./source-aware-reads-prd.md) | Released with additive data-source listing and provenance-rich event/time-series reads that preserve independent streams for consumer-owned canonicalization. |
 
 ## Deferred or demand-driven work
 

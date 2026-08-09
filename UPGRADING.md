@@ -25,7 +25,7 @@ Use the package version to signal upgrade risk:
 In practice, yes: changes like new optional fields or new tables should usually
 be `minor`, not `major`.
 
-## Planned version 0.13.0: source-aware reads
+## Version 0.13.0: source-aware reads
 
 This backwards-compatible minor release adds public data-source listing and
 source-aware event/time-series methods. Existing storage already contains the

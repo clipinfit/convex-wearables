@@ -1,8 +1,8 @@
 ---
 date: 2026-08-09
-status: IMPLEMENTED
+status: RELEASED
 semver: minor
-planned_version: 0.13.0
+released_version: 0.13.0
 owner_repo: convex-wearables
 reference_repo: ../open-wearables
 reference_revision: 44a268be623e81995e896b05ed93a56411ddf807
@@ -129,7 +129,7 @@ The sidecar response avoids repeating device metadata for every point.
 
 ## Compatibility and migration
 
-This is a backwards-compatible minor feature, planned for `0.13.0`:
+This is a backwards-compatible minor feature released in `0.13.0`:
 
 - no component schema change;
 - no existing-row rewrite;

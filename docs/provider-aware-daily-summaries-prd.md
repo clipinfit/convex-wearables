@@ -217,9 +217,9 @@ Consumer contract:
 Recommended follow-up read improvements:
 
 - event reads filterable by `provider` and `dataSourceId` — implemented by
-  `getEventsWithSources` for the planned `0.13.0` release;
+  `getEventsWithSources` in the `0.13.0` release;
 - time-series reads filterable by `provider` and `dataSourceId` — implemented
-  by `getTimeSeriesWithSources` for the planned `0.13.0` release;
+  by `getTimeSeriesWithSources` in the `0.13.0` release;
 - event and point reads that return resolved provider/source metadata —
   implemented through per-row `dataSourceId` plus a normalized `dataSources`
   sidecar; see [Source-Aware Reads](./source-aware-reads-prd.md).
