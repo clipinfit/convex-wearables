@@ -382,6 +382,7 @@ export default defineSchema({
     maintenanceEnabled: v.boolean(),
     maintenanceIntervalMs: v.number(),
     scheduledAt: v.optional(v.number()),
+    maintenanceGeneration: v.optional(v.number()),
     lastRunAt: v.optional(v.number()),
     lastError: v.optional(v.string()),
     updatedAt: v.number(),

@@ -1,4 +1,4 @@
-import { convexTest } from "convex-test";
+import { convexTest, type TestConvex } from "convex-test";
 import { describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import schema from "./schema";
@@ -19,7 +19,70 @@ async function seedDataSource(
   });
 }
 
+async function runCurrentMaintenance(t: TestConvex<typeof schema>) {
+  const generation = await t.run(async (ctx) => {
+    const settings = await ctx.db
+      .query("timeSeriesPolicySettings")
+      .withIndex("by_key", (idx) => idx.eq("key", "default"))
+      .first();
+    return settings?.maintenanceGeneration;
+  });
+  await t.mutation(internal.dataPoints.runTimeSeriesMaintenance, { generation });
+}
+
 describe("dataPoints", () => {
+  it("lets only the current maintenance job continue the schedule", async () => {
+    const t = convexTest(schema, modules);
+
+    await t.mutation(internal.dataPoints.runTimeSeriesMaintenance, {});
+    await t.mutation(internal.dataPoints.runTimeSeriesMaintenance, {});
+
+    const afterLegacy = await t.run(async (ctx) => {
+      const settings = await ctx.db
+        .query("timeSeriesPolicySettings")
+        .withIndex("by_key", (idx) => idx.eq("key", "default"))
+        .first();
+      const scheduled = await ctx.db.system.query("_scheduled_functions").collect();
+      return { settings, scheduled };
+    });
+    expect(afterLegacy.settings?.maintenanceGeneration).toBe(1);
+    expect(afterLegacy.scheduled).toHaveLength(1);
+
+    await t.mutation(api.dataPoints.replaceTimeSeriesPolicyConfiguration, {
+      defaultRules: [],
+      maintenance: { enabled: true, interval: "1h" },
+    });
+    await t.mutation(internal.dataPoints.runTimeSeriesMaintenance, { generation: 1 });
+    const afterStale = await t.run(async (ctx) => {
+      const settings = await ctx.db
+        .query("timeSeriesPolicySettings")
+        .withIndex("by_key", (idx) => idx.eq("key", "default"))
+        .first();
+      const scheduled = await ctx.db.system.query("_scheduled_functions").collect();
+      return { settings, scheduled };
+    });
+    expect(afterStale.settings?.maintenanceGeneration).toBe(2);
+    expect(afterStale.scheduled).toHaveLength(2);
+
+    await t.mutation(internal.dataPoints.runTimeSeriesMaintenance, { generation: 2 });
+    await t.mutation(api.dataPoints.replaceTimeSeriesPolicyConfiguration, {
+      defaultRules: [],
+      maintenance: { enabled: false },
+    });
+    await t.mutation(internal.dataPoints.runTimeSeriesMaintenance, { generation: 3 });
+    const disabled = await t.run(async (ctx) => {
+      const settings = await ctx.db
+        .query("timeSeriesPolicySettings")
+        .withIndex("by_key", (idx) => idx.eq("key", "default"))
+        .first();
+      const scheduled = await ctx.db.system.query("_scheduled_functions").collect();
+      return { settings, scheduled };
+    });
+    expect(disabled.settings?.scheduledAt).toBeUndefined();
+    expect(disabled.settings?.maintenanceGeneration).toBe(4);
+    expect(disabled.scheduled).toHaveLength(3);
+  });
+
   describe("store and query", () => {
     it("stores and retrieves a data point", async () => {
       const t = convexTest(schema, modules);
@@ -781,7 +844,7 @@ describe("dataPoints", () => {
           },
         });
 
-        await t.mutation(internal.dataPoints.runTimeSeriesMaintenance, {});
+        await runCurrentMaintenance(t);
 
         const state = await t.run(async (ctx) => {
           return await ctx.db
@@ -926,7 +989,7 @@ describe("dataPoints", () => {
           },
         });
 
-        await t.mutation(internal.dataPoints.runTimeSeriesMaintenance, {});
+        await runCurrentMaintenance(t);
 
         const rawAfter = await t.run(async (ctx) => {
           return await ctx.db
@@ -1012,7 +1075,7 @@ describe("dataPoints", () => {
           ],
         });
 
-        await t.mutation(internal.dataPoints.runTimeSeriesMaintenance, {});
+        await runCurrentMaintenance(t);
 
         const rollups = await t.run(async (ctx) => {
           return await ctx.db
