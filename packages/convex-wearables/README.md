@@ -699,6 +699,8 @@ Scheduled maintenance is enabled by default.
 - Set `maintenance.enabled: false` if you want to disable the background maintenance loop.
 
 The maintenance loop is internal to the component. You do not need to add your own cron job.
+Maintenance jobs from older versions drain after an upgrade. The component keeps
+one active schedule and ignores older duplicate jobs.
 
 ### Example queries
 

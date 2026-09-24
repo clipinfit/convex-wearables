@@ -772,15 +772,22 @@ export const storeBatch = internalMutation({
 });
 
 export const runTimeSeriesMaintenance = internalMutation({
-  args: {},
+  // Jobs scheduled before this version have no generation.
+  args: { generation: v.optional(v.number()) },
   returns: v.null(),
-  handler: async (ctx) => {
+  handler: async (ctx, args) => {
     const settingsDoc = await ensureTimeSeriesPolicySettingsDoc(ctx.db);
+    // Only the current job can continue the chain. The first legacy job
+    // schedules a numbered successor; other legacy jobs then become stale.
+    if (args.generation !== settingsDoc.maintenanceGeneration) {
+      return null;
+    }
     const now = Date.now();
 
     if (!settingsDoc.maintenanceEnabled) {
       await ctx.db.patch(settingsDoc._id, {
         scheduledAt: undefined,
+        maintenanceGeneration: (settingsDoc.maintenanceGeneration ?? 0) + 1,
         lastRunAt: now,
         lastError: undefined,
         updatedAt: now,
@@ -818,10 +825,14 @@ export const runTimeSeriesMaintenance = internalMutation({
       ? Math.min(refreshed.maintenanceIntervalMs, 60 * 1000)
       : refreshed.maintenanceIntervalMs;
     const scheduledAt = now + delayMs;
+    const generation = (refreshed.maintenanceGeneration ?? 0) + 1;
 
-    await ctx.scheduler.runAfter(delayMs, internal.dataPoints.runTimeSeriesMaintenance, {});
+    await ctx.scheduler.runAfter(delayMs, internal.dataPoints.runTimeSeriesMaintenance, {
+      generation,
+    });
     await ctx.db.patch(refreshed._id, {
       scheduledAt,
+      maintenanceGeneration: generation,
       lastRunAt: now,
       lastError,
       updatedAt: now,
@@ -941,6 +952,11 @@ async function upsertTimeSeriesPolicySettings(
       maintenance?.interval !== undefined
         ? parseDurationInput(maintenance.interval, "maintenance.interval")
         : existing.maintenanceIntervalMs,
+    scheduledAt: maintenance?.enabled === false ? undefined : existing.scheduledAt,
+    maintenanceGeneration:
+      maintenance?.enabled === false
+        ? (existing.maintenanceGeneration ?? 0) + 1
+        : existing.maintenanceGeneration,
     updatedAt: Date.now(),
   };
 
@@ -1392,9 +1408,13 @@ async function ensureTimeSeriesMaintenanceScheduled(
     return;
   }
 
-  await ctx.scheduler.runAfter(delayMs, internal.dataPoints.runTimeSeriesMaintenance, {});
+  const generation = (settings.maintenanceGeneration ?? 0) + 1;
+  await ctx.scheduler.runAfter(delayMs, internal.dataPoints.runTimeSeriesMaintenance, {
+    generation,
+  });
   await ctx.db.patch(settings._id, {
     scheduledAt,
+    maintenanceGeneration: generation,
     updatedAt: now,
   });
 }

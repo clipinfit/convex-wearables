@@ -207,6 +207,8 @@ then `value` for the rollup point will be the bucket's `last` value.
 ## Maintenance behavior
 
 Scheduled maintenance is internal to the component and enabled by default.
+After an upgrade, older scheduled jobs drain. The component ignores duplicate
+jobs and keeps one active maintenance schedule.
 
 It is responsible for:
 
