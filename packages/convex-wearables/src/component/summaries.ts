@@ -59,7 +59,7 @@ export const getDailySummaries = query({
       args.maxRows !== undefined &&
       (!Number.isInteger(args.maxRows) || args.maxRows < 1 || args.maxRows > 1_000)
     ) {
-      throw new Error("maxRows must be an integer between 1 and 1000");
+      throw new Error("Invalid maxRows.");
     }
     if (args.provider !== undefined) {
       const rows = ctx.db
