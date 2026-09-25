@@ -545,6 +545,7 @@ export class WearablesClient {
       category: string;
       startDate: string;
       endDate: string;
+      maxRows?: number;
     },
   ): Promise<DailySummary[]> {
     return await ctx.runQuery(this.component.summaries.getDailySummaries, args);
@@ -967,6 +968,7 @@ export class WearablesClient {
       internalCallbackHandle?: string;
       internalCallbackKind?: "action" | "mutation";
       clearInternalCallback?: boolean;
+      hostActionHandle?: string;
       maxEndpointsPerTenant?: number;
       maxEndpointsPerUser?: number;
       eventRetentionMs?: number;

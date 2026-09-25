@@ -51,11 +51,18 @@ export const getDailySummaries = query({
     category: v.string(),
     startDate: v.string(), // "2026-03-01"
     endDate: v.string(), // "2026-03-15"
+    maxRows: v.optional(v.number()),
   },
   returns: v.array(v.any()),
   handler: async (ctx, args) => {
+    if (
+      args.maxRows !== undefined &&
+      (!Number.isInteger(args.maxRows) || args.maxRows < 1 || args.maxRows > 1_000)
+    ) {
+      throw new Error("maxRows must be an integer between 1 and 1000");
+    }
     if (args.provider !== undefined) {
-      return await ctx.db
+      const rows = ctx.db
         .query("dailySummaries")
         .withIndex("by_user_provider_category_date", (idx) =>
           idx
@@ -64,11 +71,11 @@ export const getDailySummaries = query({
             .eq("category", args.category)
             .gte("date", args.startDate)
             .lte("date", args.endDate),
-        )
-        .collect();
+        );
+      return args.maxRows === undefined ? await rows.collect() : await rows.take(args.maxRows);
     }
 
-    return await ctx.db
+    const rows = ctx.db
       .query("dailySummaries")
       .withIndex("by_user_category_date", (idx) =>
         idx
@@ -76,8 +83,8 @@ export const getDailySummaries = query({
           .eq("category", args.category)
           .gte("date", args.startDate)
           .lte("date", args.endDate),
-      )
-      .collect();
+      );
+    return args.maxRows === undefined ? await rows.collect() : await rows.take(args.maxRows);
   },
 });
 

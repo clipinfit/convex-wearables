@@ -141,6 +141,37 @@ describe("summaries", () => {
   });
 
   describe("getDailySummaries", () => {
+    it("limits indexed reads when maxRows is set", async () => {
+      const t = convexTest(schema, modules);
+      for (const [day, provider] of [
+        ["10", "garmin"],
+        ["11", "garmin"],
+        ["12", "garmin"],
+      ] as const) {
+        await t.mutation(internal.summaries.upsert, {
+          userId: "user-1",
+          provider,
+          date: `2026-03-${day}`,
+          category: "activity",
+          totalSteps: 1000,
+        });
+      }
+      const args = {
+        userId: "user-1",
+        provider: "garmin" as const,
+        category: "activity",
+        startDate: "2026-03-10",
+        endDate: "2026-03-12",
+      };
+      expect(await t.query(api.summaries.getDailySummaries, { ...args, maxRows: 2 })).toHaveLength(
+        2,
+      );
+      expect(await t.query(api.summaries.getDailySummaries, args)).toHaveLength(3);
+      await expect(
+        t.query(api.summaries.getDailySummaries, { ...args, maxRows: 0 }),
+      ).rejects.toThrow("maxRows");
+    });
+
     it("returns summaries within date range", async () => {
       const t = convexTest(schema, modules);
 

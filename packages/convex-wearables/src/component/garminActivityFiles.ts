@@ -1,5 +1,3 @@
-"use node";
-
 import { v } from "convex/values";
 import FitParser from "fit-file-parser";
 import { internal } from "./_generated/api";
@@ -186,7 +184,7 @@ async function downloadFit(
   }
   const declared = Number(response.headers.get("content-length"));
   if (Number.isFinite(declared)) assertWithinFitSizeLimit(declared, maxBytes);
-  const bytes = new Uint8Array(await response.arrayBuffer());
+  const bytes = await response.arrayBuffer();
   assertWithinFitSizeLimit(bytes.byteLength, maxBytes);
   return bytes;
 }
@@ -244,7 +242,7 @@ export const processActivityFile = internalAction({
         force: false,
         speedUnit: "m/s",
         lengthUnit: "m",
-      }).parseAsync(Buffer.from(bytes));
+      }).parseAsync(bytes);
       const enrichment = normalizeFitMessages(parsed as unknown as ParsedFitInput);
 
       await ctx.runMutation(internal.workoutEnrichment.replaceWorkoutEnrichment, {

@@ -71,6 +71,7 @@ function defaultConfig() {
     snapshotPayloadsEnabled: false,
     internalCallbackHandle: undefined as string | undefined,
     internalCallbackKind: undefined as "action" | "mutation" | undefined,
+    hostActionHandle: undefined as string | undefined,
     maxEndpointsPerTenant: 20,
     maxEndpointsPerUser: 5,
     eventRetentionMs: DEFAULT_EVENT_RETENTION_MS,
@@ -239,6 +240,7 @@ export const configureOutgoingWebhooks = mutation({
     internalCallbackHandle: v.optional(v.string()),
     internalCallbackKind: v.optional(v.union(v.literal("action"), v.literal("mutation"))),
     clearInternalCallback: v.optional(v.boolean()),
+    hostActionHandle: v.optional(v.string()),
     maxEndpointsPerTenant: v.optional(v.number()),
     maxEndpointsPerUser: v.optional(v.number()),
     eventRetentionMs: v.optional(v.number()),
@@ -266,6 +268,7 @@ export const configureOutgoingWebhooks = mutation({
       internalCallbackKind: internalCallbackHandle
         ? (args.internalCallbackKind ?? base.internalCallbackKind ?? "action")
         : undefined,
+      hostActionHandle: args.hostActionHandle ?? base.hostActionHandle,
       maxEndpointsPerTenant: Math.min(
         Math.max(args.maxEndpointsPerTenant ?? base.maxEndpointsPerTenant, 1),
         100,
@@ -277,9 +280,24 @@ export const configureOutgoingWebhooks = mutation({
       eventRetentionMs,
       updatedAt: Date.now(),
     };
+    if (value.externalDeliveryEnabled && !value.hostActionHandle) {
+      throw new Error("External delivery requires a hostActionHandle");
+    }
     if (existing) await ctx.db.replace(existing._id, value);
     else await ctx.db.insert("outgoingWebhookConfiguration", value);
     return null;
+  },
+});
+
+export const getHostActionHandle = internalQuery({
+  args: {},
+  returns: v.union(v.string(), v.null()),
+  handler: async (ctx) => {
+    const config = await ctx.db
+      .query("outgoingWebhookConfiguration")
+      .withIndex("by_key", (q) => q.eq("key", "default"))
+      .first();
+    return config?.hostActionHandle ?? null;
   },
 });
 

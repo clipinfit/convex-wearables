@@ -2,12 +2,13 @@ import workflowTest from "@convex-dev/workflow/test";
 import workpoolTest from "@convex-dev/workpool/test";
 import { convexTest } from "convex-test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { api, internal } from "./_generated/api";
 import {
   createOutgoingWebhookSignatureForTest,
   decryptWebhookSecretForTest,
   encryptWebhookSecretForTest,
-} from "./outgoingWebhookActions";
+  validateWebhookUrlForTest,
+} from "../host/outgoingWebhookNode";
+import { api, internal } from "./_generated/api";
 import { canonicalJson } from "./outgoingWebhooks";
 import schema from "./schema";
 import { modules } from "./test.setup";
@@ -36,6 +37,7 @@ async function enable(t: ReturnType<typeof createTest>) {
   await t.mutation(api.outgoingWebhooks.configureOutgoingWebhooks, {
     captureEnabled: true,
     externalDeliveryEnabled: true,
+    hostActionHandle: "test-host-action",
   });
   await t.mutation(api.outgoingWebhooks.setWebhookUserTenant, {
     userId: "user-1",
@@ -44,6 +46,24 @@ async function enable(t: ReturnType<typeof createTest>) {
 }
 
 describe("durable outgoing webhooks", () => {
+  it("requires a host Node action before external delivery is enabled", async () => {
+    const t = createTest();
+    await expect(
+      t.mutation(api.outgoingWebhooks.configureOutgoingWebhooks, {
+        captureEnabled: true,
+        externalDeliveryEnabled: true,
+      }),
+    ).rejects.toThrow("hostActionHandle");
+    await t.mutation(api.outgoingWebhooks.configureOutgoingWebhooks, {
+      captureEnabled: true,
+      externalDeliveryEnabled: true,
+      hostActionHandle: "test-host-action",
+    });
+    expect(
+      (await t.query(api.outgoingWebhooks.getOutgoingWebhookStatus, {})).externalDeliveryEnabled,
+    ).toBe(true);
+  });
+
   it("keeps normal ingestion unchanged while capture is disabled", async () => {
     const t = createTest();
     const sourceId = await t.run(
@@ -68,6 +88,7 @@ describe("durable outgoing webhooks", () => {
     await t.mutation(api.outgoingWebhooks.configureOutgoingWebhooks, {
       captureEnabled: true,
       externalDeliveryEnabled: true,
+      hostActionHandle: "test-host-action",
       internalCallbackHandle: "callback-handle",
       internalCallbackKind: "mutation",
     });
@@ -367,27 +388,12 @@ describe("durable outgoing webhooks", () => {
   });
 
   it("rejects unsafe endpoint URLs before network delivery", async () => {
-    const t = createTest();
-    await expect(
-      t.action(api.outgoingWebhookActions.testValidateWebhookUrl, {
-        url: "http://127.0.0.1/hook",
-      }),
-    ).rejects.toThrow("HTTPS");
-    await expect(
-      t.action(api.outgoingWebhookActions.testValidateWebhookUrl, {
-        url: "https://localhost/hook",
-      }),
-    ).rejects.toThrow("Local");
-    await expect(
-      t.action(api.outgoingWebhookActions.testValidateWebhookUrl, {
-        url: "https://192.168.1.2/hook",
-      }),
-    ).rejects.toThrow("prohibited");
-    await expect(
-      t.action(api.outgoingWebhookActions.testValidateWebhookUrl, {
-        url: "https://[::1]/hook",
-      }),
-    ).rejects.toThrow("prohibited");
+    await expect(validateWebhookUrlForTest("http://127.0.0.1/hook")).rejects.toThrow("HTTPS");
+    await expect(validateWebhookUrlForTest("https://localhost/hook")).rejects.toThrow("Local");
+    await expect(validateWebhookUrlForTest("https://192.168.1.2/hook")).rejects.toThrow(
+      "prohibited",
+    );
+    await expect(validateWebhookUrlForTest("https://[::1]/hook")).rejects.toThrow("prohibited");
   });
 
   it("removes user payload state without deleting tenant-wide endpoint configuration", async () => {

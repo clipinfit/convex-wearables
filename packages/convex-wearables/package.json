@@ -1,6 +1,6 @@
 {
   "name": "@clipin/convex-wearables",
-  "version": "0.13.2",
+  "version": "1.0.0",
   "description": "Convex component for normalized wearable integrations and deterministic synthetic health data.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/clipinfit/convex-wearables#readme",
@@ -36,6 +36,14 @@
     "./types": {
       "types": "./dist/client/types.d.ts",
       "default": "./dist/client/types.js"
+    },
+    "./outgoing-webhooks/node": {
+      "types": "./dist/host/outgoingWebhookNode.d.ts",
+      "default": "./dist/host/outgoingWebhookNode.js"
+    },
+    "./outgoing-webhooks/protocol": {
+      "types": "./dist/client/outgoingWebhookProtocol.d.ts",
+      "default": "./dist/client/outgoingWebhookProtocol.js"
     }
   },
   "publishConfig": {

@@ -281,7 +281,7 @@ When a query returns rollup-backed points, each point can also include:
 
 | Method | Description |
 |--------|-------------|
-| `getDailySummaries(ctx, { userId, provider?, category, startDate, endDate })` | Get daily aggregates, optionally scoped to one provider |
+| `getDailySummaries(ctx, { userId, provider?, category, startDate, endDate, maxRows? })` | Get daily aggregates, optionally scoped to one provider and capped at 1–1000 rows |
 
 Categories: `"activity"`, `"sleep"`, `"recovery"`, `"body"`.
 
@@ -1094,14 +1094,42 @@ openssl rand -base64 32
 npx convex env set CONVEX_WEARABLES_WEBHOOK_ENCRYPTION_KEY '<base64-key>'
 ```
 
+External delivery also needs one internal Node action in the host app. The
+component cannot run Node actions itself. The package supplies the pinned HTTPS
+delivery implementation; the host only installs it:
+
+```ts
+// convex/wearableWebhookNode.ts
+"use node";
+import { runOutgoingWebhookHostRequest } from "@clipin/convex-wearables/outgoing-webhooks/node";
+import { outgoingWebhookHostRequest } from "@clipin/convex-wearables/outgoing-webhooks/protocol";
+import { components } from "./_generated/api";
+import { internalAction } from "./_generated/server";
+
+export const dispatch = internalAction({
+  args: { request: outgoingWebhookHostRequest },
+  handler: async (ctx, { request }) =>
+    await runOutgoingWebhookHostRequest(ctx, components.wearables, request),
+});
+```
+
+Create a function handle for `internal.wearableWebhookNode.dispatch` in an
+authorized host mutation. Pass it as `hostActionHandle` when enabling external
+delivery. Keep the action internal. Capture and internal callbacks do not need
+this Node action.
+
 Enable delivery only after that key is present. Endpoint and configuration
 methods do not authenticate callers; expose them through host functions that
 verify tenant administration or exact user ownership:
 
 ```ts
+import { createFunctionHandle } from "convex/server";
+import { internal } from "./_generated/api";
+
 await wearables.configureOutgoingWebhooks(ctx, {
   captureEnabled: true,
   externalDeliveryEnabled: true,
+  hostActionHandle: await createFunctionHandle(internal.wearableWebhookNode.dispatch),
 });
 
 const created = await wearables.createWebhookEndpoint(ctx, {

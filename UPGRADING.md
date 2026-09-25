@@ -1,5 +1,25 @@
 # Upgrading and Data Migrations
 
+## Version 1.0.0: deployable component and host Node action
+
+The component now deploys without Node-only component modules. Applications
+that enable external outgoing webhooks must add the internal host Node action
+shown in the README and pass its function handle as `hostActionHandle` to
+`configureOutgoingWebhooks`. The action uses the package's existing encryption,
+public-address validation, and DNS-pinned HTTPS implementation. Applications
+that use only capture or internal callbacks need no host Node action.
+
+The extra host action is a breaking setup requirement for external webhook
+users. It is why this release uses a major version. Existing webhook endpoint
+rows need no data migration. For an existing external-delivery deployment,
+disable delivery before upgrading, deploy the host Node action with this
+release, store its handle, then re-enable delivery. Capture and internal
+callbacks can continue while external delivery is disabled.
+
+`getDailySummaries` now accepts an optional `maxRows` (1–1000). Existing calls
+without it keep their previous result shape. Garmin FIT parsing now uses an
+`ArrayBuffer`, which runs in the component runtime.
+
 This package is a Convex component. Its tables are owned by the component, not by
 the host app. That has one important consequence:
 

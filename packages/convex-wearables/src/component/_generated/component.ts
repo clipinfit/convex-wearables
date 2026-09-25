@@ -26,6 +26,7 @@ type Modules = {
   oauthActions: typeof import("../oauthActions.js");
   providerWebhooks: typeof import("../providerWebhooks.js");
   outgoingWebhooks: typeof import("../outgoingWebhooks.js");
+  outgoingWebhookBridge: typeof import("../outgoingWebhookBridge.js");
   outgoingWebhookActions: typeof import("../outgoingWebhookActions.js");
   sdkPush: typeof import("../sdkPush.js");
   summaries: typeof import("../summaries.js");

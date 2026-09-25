@@ -502,6 +502,7 @@ export default defineSchema({
     snapshotPayloadsEnabled: v.boolean(),
     internalCallbackHandle: v.optional(v.string()),
     internalCallbackKind: v.optional(v.union(v.literal("action"), v.literal("mutation"))),
+    hostActionHandle: v.optional(v.string()),
     maxEndpointsPerTenant: v.number(),
     maxEndpointsPerUser: v.number(),
     eventRetentionMs: v.number(),

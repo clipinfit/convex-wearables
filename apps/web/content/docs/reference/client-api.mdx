@@ -56,7 +56,7 @@ export const wearables = new WearablesClient(components.wearables, {
 
 | Method | Description |
 |---|---|
-| `getDailySummaries(ctx, { userId, category, startDate, endDate })` | Get daily summary rows |
+| `getDailySummaries(ctx, { userId, provider?, category, startDate, endDate, maxRows? })` | Get daily summary rows, optionally capped at 1–1000 |
 
 ## Data sources
 
@@ -144,7 +144,7 @@ tenant/user authorization; the component enforces the persisted scope.
 
 | Method | Description |
 |---|---|
-| `configureOutgoingWebhooks(ctx, args)` | Opt into capture, callbacks, external delivery, payload modes, and limits |
+| `configureOutgoingWebhooks(ctx, args)` | Opt into capture, callbacks, external delivery with `hostActionHandle`, payload modes, and limits |
 | `getOutgoingWebhookStatus(ctx)` | Read safe aggregate configuration and queue health |
 | `getOutgoingWebhookRuntimeStatus(ctx)` | Verify encryption-key readiness and the native DNS-pinned delivery runtime |
 | `setWebhookUserTenant(ctx, args)` | Persist a host-authorized user-to-tenant mapping |

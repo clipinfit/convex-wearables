@@ -104,12 +104,38 @@ runtime/delivery health, and then remove the previous key. Encryption always
 uses the current key; decryption tries only the current and explicit previous
 key.
 
+Add an internal Node action to the host app. The component runs in Convex's
+default runtime; the package's Node handler keeps encryption and DNS-pinned
+HTTPS delivery in the host runtime.
+
+```ts
+// convex/wearableWebhookNode.ts
+"use node";
+import { runOutgoingWebhookHostRequest } from "@clipin/convex-wearables/outgoing-webhooks/node";
+import { outgoingWebhookHostRequest } from "@clipin/convex-wearables/outgoing-webhooks/protocol";
+import { components } from "./_generated/api";
+import { internalAction } from "./_generated/server";
+
+export const dispatch = internalAction({
+  args: { request: outgoingWebhookHostRequest },
+  handler: async (ctx, { request }) =>
+    await runOutgoingWebhookHostRequest(ctx, components.wearables, request),
+});
+```
+
+Keep the action internal. Create its function handle in an authorized host
+mutation and pass it to the component:
+
 Then enable external delivery:
 
 ```ts
+import { createFunctionHandle } from "convex/server";
+import { internal } from "./_generated/api";
+
 await wearables.configureOutgoingWebhooks(ctx, {
   captureEnabled: true,
   externalDeliveryEnabled: true,
+  hostActionHandle: await createFunctionHandle(internal.wearableWebhookNode.dispatch),
 });
 ```
 
