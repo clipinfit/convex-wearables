@@ -23,7 +23,7 @@ export type CredentialedProviderName = Exclude<ProviderName, "synthetic">;
 
 export type ConnectionStatus = "active" | "inactive" | "revoked" | "expired" | "error";
 
-export type EventCategory = "workout" | "sleep";
+export type EventCategory = "workout" | "sleep" | "activity";
 
 export type SyncJobStatus = "queued" | "running" | "completed" | "failed" | "canceled";
 
@@ -204,6 +204,8 @@ export type WearablesEventType =
   | "workout.upserted"
   | "workout.enriched"
   | "workout.deleted"
+  | "activity.upserted"
+  | "activity.deleted"
   | "sleep.upserted"
   | "sleep.deleted"
   | "summary.upserted"
@@ -222,7 +224,15 @@ export interface WearablesEventEnvelope {
   userId?: string;
   provider?: ProviderName;
   subject: {
-    kind: "connection" | "sync" | "workout" | "sleep" | "summary" | "series" | "deletion";
+    kind:
+      | "connection"
+      | "sync"
+      | "workout"
+      | "sleep"
+      | "activity"
+      | "summary"
+      | "series"
+      | "deletion";
     id?: string;
   };
   idempotencyKey: string;
@@ -472,7 +482,7 @@ export interface SdkSourceMetadata {
 }
 
 export interface SdkPushEvent extends SdkSourceMetadata {
-  category: EventCategory;
+  category: "workout" | "sleep";
   type?: string;
   sourceName?: string;
   durationSeconds?: number;
@@ -790,7 +800,23 @@ export interface SleepEvent {
   sleepStages?: SleepStage[];
 }
 
-export type HealthEvent = WorkoutEvent | SleepEvent;
+/** Automatically detected movement, separate from recorded workouts. */
+export interface ActivityEvent
+  extends Pick<
+    WorkoutEvent,
+    | "_id"
+    | "userId"
+    | "type"
+    | "sourceName"
+    | "durationSeconds"
+    | "startDatetime"
+    | "endDatetime"
+    | "externalId"
+  > {
+  category: "activity";
+}
+
+export type HealthEvent = WorkoutEvent | SleepEvent | ActivityEvent;
 
 /** Event carrying the stable key used to resolve its provider/source metadata. */
 export type SourceAwareHealthEvent = HealthEvent & { dataSourceId: string };

@@ -420,6 +420,14 @@ describe("garminWebhooks", () => {
       expect.arrayContaining(["running", "cycling", "sleep_session", "moveiq_walking"]),
     );
 
+    expect(result.events.find((event) => event.type === "moveiq_walking")).toMatchObject({
+      category: "activity",
+    });
+    const workouts = await t.query(api.events.getEvents, { userId: "user-1", category: "workout" });
+    expect(
+      workouts.events.every((event: { type?: string }) => !event.type?.startsWith("moveiq")),
+    ).toBe(true);
+
     const activitySummary = result.summaries.find(
       (summary) => summary.category === "activity" && summary.date === "2026-03-16",
     );

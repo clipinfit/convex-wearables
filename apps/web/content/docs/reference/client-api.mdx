@@ -32,6 +32,11 @@ export const wearables = new WearablesClient(components.wearables, {
 
 ## Events
 
+Event categories are `workout`, `sleep`, and `activity`. Garmin Move IQ belongs
+to `activity`. `migrateGarminMoveIQ(ctx, { cursor?, limit?, dryRun? })` upgrades
+legacy Garmin Move IQ workout rows in bounded pages; protect host wrappers with
+administrator authorization. Dry-run is the default.
+
 | Method | Description |
 |---|---|
 | `getEvents(ctx, { userId, category, startDate?, endDate?, limit?, cursor? })` | Paginated events query |

@@ -1,6 +1,12 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { type DatabaseReader, internalMutation, internalQuery, query } from "./_generated/server";
+import {
+  type DatabaseReader,
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+} from "./_generated/server";
 import { dataSourceDocumentValidator } from "./dataSources";
 import { assertIngestionAllowed } from "./lifecycle";
 import { captureOutgoingEvent, outgoingEventFingerprint } from "./outgoingWebhooks";
@@ -8,7 +14,7 @@ import { eventCategory, providerName } from "./schema";
 
 type EventReadArgs = {
   userId: string;
-  category: "workout" | "sleep";
+  category: Doc<"events">["category"];
   provider?: Doc<"dataSources">["provider"];
   dataSourceId?: Id<"dataSources">;
   startDate?: number;
@@ -171,7 +177,7 @@ async function getEventsForSource(
 // ---------------------------------------------------------------------------
 
 /**
- * Get events (workouts or sleep) for a user with cursor-based pagination.
+ * Get events (workouts, sleep, or detected activity) for a user with cursor-based pagination.
  */
 export const getEvents = query({
   args: {
@@ -338,51 +344,53 @@ export const getByExternalId = internalQuery({
 /**
  * Store a single event (workout or sleep). Deduplicates by externalId if provided.
  */
-export const storeEvent = internalMutation({
-  args: {
-    dataSourceId: v.id("dataSources"),
-    userId: v.string(),
-    category: eventCategory,
-    type: v.optional(v.string()),
-    sourceName: v.optional(v.string()),
-    durationSeconds: v.optional(v.number()),
-    startDatetime: v.number(),
-    endDatetime: v.optional(v.number()),
-    externalId: v.optional(v.string()),
-    // Workout fields
-    heartRateMin: v.optional(v.number()),
-    heartRateMax: v.optional(v.number()),
-    heartRateAvg: v.optional(v.number()),
-    energyBurned: v.optional(v.number()),
-    distance: v.optional(v.number()),
-    stepsCount: v.optional(v.number()),
-    maxSpeed: v.optional(v.number()),
-    maxWatts: v.optional(v.number()),
-    movingTimeSeconds: v.optional(v.number()),
-    totalElevationGain: v.optional(v.number()),
-    averageSpeed: v.optional(v.number()),
-    averageWatts: v.optional(v.number()),
-    elevHigh: v.optional(v.number()),
-    elevLow: v.optional(v.number()),
-    // Sleep fields
-    sleepTotalDurationMinutes: v.optional(v.number()),
-    sleepTimeInBedMinutes: v.optional(v.number()),
-    sleepEfficiencyScore: v.optional(v.number()),
-    sleepDeepMinutes: v.optional(v.number()),
-    sleepRemMinutes: v.optional(v.number()),
-    sleepLightMinutes: v.optional(v.number()),
-    sleepAwakeMinutes: v.optional(v.number()),
-    isNap: v.optional(v.boolean()),
-    sleepStages: v.optional(
-      v.array(
-        v.object({
-          stage: v.string(),
-          startTime: v.number(),
-          endTime: v.number(),
-        }),
-      ),
+const eventWriteFields = {
+  dataSourceId: v.id("dataSources"),
+  userId: v.string(),
+  category: eventCategory,
+  type: v.optional(v.string()),
+  sourceName: v.optional(v.string()),
+  durationSeconds: v.optional(v.number()),
+  startDatetime: v.number(),
+  endDatetime: v.optional(v.number()),
+  externalId: v.optional(v.string()),
+  // Workout fields
+  heartRateMin: v.optional(v.number()),
+  heartRateMax: v.optional(v.number()),
+  heartRateAvg: v.optional(v.number()),
+  energyBurned: v.optional(v.number()),
+  distance: v.optional(v.number()),
+  stepsCount: v.optional(v.number()),
+  maxSpeed: v.optional(v.number()),
+  maxWatts: v.optional(v.number()),
+  movingTimeSeconds: v.optional(v.number()),
+  totalElevationGain: v.optional(v.number()),
+  averageSpeed: v.optional(v.number()),
+  averageWatts: v.optional(v.number()),
+  elevHigh: v.optional(v.number()),
+  elevLow: v.optional(v.number()),
+  // Sleep fields
+  sleepTotalDurationMinutes: v.optional(v.number()),
+  sleepTimeInBedMinutes: v.optional(v.number()),
+  sleepEfficiencyScore: v.optional(v.number()),
+  sleepDeepMinutes: v.optional(v.number()),
+  sleepRemMinutes: v.optional(v.number()),
+  sleepLightMinutes: v.optional(v.number()),
+  sleepAwakeMinutes: v.optional(v.number()),
+  isNap: v.optional(v.boolean()),
+  sleepStages: v.optional(
+    v.array(
+      v.object({
+        stage: v.string(),
+        startTime: v.number(),
+        endTime: v.number(),
+      }),
     ),
-  },
+  ),
+};
+
+export const storeEvent = internalMutation({
+  args: eventWriteFields,
   returns: v.id("events"),
   handler: async (ctx, args) => {
     const source = await ctx.db.get(args.dataSourceId);
@@ -425,7 +433,7 @@ export const storeEvent = internalMutation({
       }
     }
 
-    // Deduplicate by source + start + end
+    // Deduplicate within a category by source + start + end
     const existing = await ctx.db
       .query("events")
       .withIndex("by_source_start_end", (idx) =>
@@ -434,6 +442,7 @@ export const storeEvent = internalMutation({
           .eq("startDatetime", args.startDatetime)
           .eq("endDatetime", args.endDatetime ?? undefined),
       )
+      .filter((q) => q.eq(q.field("category"), args.category))
       .first();
 
     if (existing) {
@@ -483,7 +492,7 @@ export const storeEvent = internalMutation({
  */
 export const storeEventBatch = internalMutation({
   args: {
-    events: v.array(v.any()),
+    events: v.array(v.object(eventWriteFields)),
   },
   returns: v.array(v.id("events")),
   handler: async (ctx, args) => {
@@ -515,8 +524,8 @@ export const storeEventBatch = internalMutation({
           await captureOutgoingEvent(ctx, {
             userId: event.userId,
             provider: source?.provider,
-            eventType: event.category === "workout" ? "workout.upserted" : "sleep.upserted",
-            subjectKind: event.category === "workout" ? "workout" : "sleep",
+            eventType: `${event.category}.upserted`,
+            subjectKind: event.category,
             subjectId: String(existing._id),
             idempotencyKey: `${event.category}:${source?.provider ?? "unknown"}:${event.externalId ?? existing._id}:${outgoingEventFingerprint(event)}`,
             data: {
@@ -539,6 +548,7 @@ export const storeEventBatch = internalMutation({
             .eq("startDatetime", event.startDatetime)
             .eq("endDatetime", event.endDatetime ?? undefined),
         )
+        .filter((q) => q.eq(q.field("category"), event.category))
         .first();
       if (existing) {
         await ctx.db.patch(existing._id, event);
@@ -546,8 +556,8 @@ export const storeEventBatch = internalMutation({
         await captureOutgoingEvent(ctx, {
           userId: event.userId,
           provider: source?.provider,
-          eventType: event.category === "workout" ? "workout.upserted" : "sleep.upserted",
-          subjectKind: event.category === "workout" ? "workout" : "sleep",
+          eventType: `${event.category}.upserted`,
+          subjectKind: event.category,
           subjectId: String(existing._id),
           idempotencyKey: `${event.category}:${source?.provider ?? "unknown"}:${event.externalId ?? existing._id}:${outgoingEventFingerprint(event)}`,
           data: {
@@ -566,8 +576,8 @@ export const storeEventBatch = internalMutation({
       await captureOutgoingEvent(ctx, {
         userId: event.userId,
         provider: source?.provider,
-        eventType: event.category === "workout" ? "workout.upserted" : "sleep.upserted",
-        subjectKind: event.category === "workout" ? "workout" : "sleep",
+        eventType: `${event.category}.upserted`,
+        subjectKind: event.category,
         subjectId: String(id),
         idempotencyKey: `${event.category}:${source?.provider ?? "unknown"}:${event.externalId ?? id}:${outgoingEventFingerprint(event)}`,
         data: {
@@ -625,7 +635,7 @@ export const deleteByExternalId = internalMutation({
       await captureOutgoingEvent(ctx, {
         userId: event.userId,
         provider: source?.provider,
-        eventType: event.category === "workout" ? "workout.deleted" : "sleep.deleted",
+        eventType: `${event.category}.deleted`,
         subjectKind: event.category,
         subjectId: String(event._id),
         idempotencyKey: `${event.category}:${source?.provider ?? "unknown"}:${event.externalId ?? event._id}:deleted`,
@@ -662,5 +672,59 @@ export const deleteUserEvents = internalMutation({
       for (const row of [...segments, ...zones]) await ctx.db.delete(row._id);
       await ctx.db.delete(event._id);
     }
+  },
+});
+
+/**
+ * Reclassify legacy Garmin Move IQ workouts without deleting activity data.
+ * Run after deploying the expanded schema. Resume with nextCursor until isDone.
+ * Historical outgoing webhook records are not replayed or rewritten.
+ */
+export const migrateGarminMoveIQ = mutation({
+  args: {
+    cursor: v.optional(v.string()),
+    limit: v.optional(v.number()),
+    dryRun: v.optional(v.boolean()),
+  },
+  returns: v.object({
+    scanned: v.number(),
+    eligible: v.number(),
+    migrated: v.number(),
+    nextCursor: v.union(v.string(), v.null()),
+    isDone: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const limit = args.limit ?? 100;
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+      throw new Error("limit must be an integer from 1 to 100");
+    }
+    // Creation order stays stable when category changes, so pages do not skip rows.
+    const page = await ctx.db.query("events").paginate({
+      cursor: args.cursor ?? null,
+      numItems: limit,
+    });
+    let eligible = 0;
+    let migrated = 0;
+    for (const event of page.page) {
+      if (
+        event.category !== "workout" ||
+        !(event.type === "moveiq" || event.type?.startsWith("moveiq_")) ||
+        !event.externalId?.startsWith("garmin-moveiq-")
+      )
+        continue;
+      const source = await ctx.db.get(event.dataSourceId);
+      if (source?.provider !== "garmin") continue;
+      eligible += 1;
+      if (args.dryRun !== false) continue;
+      await ctx.db.patch(event._id, { category: "activity" });
+      migrated += 1;
+    }
+    return {
+      scanned: page.page.length,
+      eligible,
+      migrated,
+      nextCursor: page.isDone ? null : page.continueCursor,
+      isDone: page.isDone,
+    };
   },
 });

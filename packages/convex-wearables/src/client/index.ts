@@ -116,7 +116,7 @@ export {
   supportsHistoricalSync,
   supportsManualSync,
 } from "./providerCapabilities.js";
-export type { SeriesType, SleepEvent, SleepStage, WorkoutEvent } from "./types.js";
+export type { ActivityEvent, SeriesType, SleepEvent, SleepStage, WorkoutEvent } from "./types.js";
 export { SERIES_TYPES } from "./types.js";
 // Re-export types for consumers
 export type {
@@ -332,7 +332,7 @@ export class WearablesClient {
   // -----------------------------------------------------------------------
 
   /**
-   * Get events (workouts or sleep) for a user with pagination.
+   * Get events (workouts, sleep, or detected activity) for a user with pagination.
    */
   async getEvents(
     ctx: QueryRunner,
@@ -370,6 +370,20 @@ export class WearablesClient {
       this.component.events.getEventsWithSources,
       args,
     )) as SourceAwareEventsPage;
+  }
+
+  /** Upgrade legacy Garmin Move IQ categories. Expose only to host administrators. */
+  async migrateGarminMoveIQ(
+    ctx: MutationRunner,
+    args: { cursor?: string; limit?: number; dryRun?: boolean } = {},
+  ): Promise<{
+    scanned: number;
+    eligible: number;
+    migrated: number;
+    nextCursor: string | null;
+    isDone: boolean;
+  }> {
+    return await ctx.runMutation(this.component.events.migrateGarminMoveIQ, args);
   }
 
   /**

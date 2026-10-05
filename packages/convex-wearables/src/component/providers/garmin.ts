@@ -1076,7 +1076,7 @@ export function normalizeMoveIQ(moveIQ: GarminMoveIQ): NormalizedEvent {
   const type = moveIQ.activityType ? `moveiq_${moveIQ.activityType.toLowerCase()}` : "moveiq";
 
   return {
-    category: "workout",
+    category: "activity",
     type,
     sourceName: "Garmin",
     durationSeconds,

@@ -9,7 +9,7 @@ description: Tables, indexes, and deduplication rules used by the component.
 |---|---|---|
 | `connections` | OAuth tokens and provider links per user | `by_user`, `by_user_provider`, `by_provider_user`, `by_provider_username`, `by_status` |
 | `dataSources` | User + provider + device/source combinations | `by_user_provider`, `by_user_provider_device`, `by_connection` |
-| `events` | Workouts and sleep sessions | `by_user_category_time`, `by_external_id`, `by_source_start_end` |
+| `events` | Workouts, sleep sessions, and detected activity | `by_user_category_time`, `by_external_id`, `by_source_start_end` |
 | `dataPoints` | Raw time-series samples | `by_source_type_time`, `by_source_time`, `by_type_time` |
 | `timeSeriesRollups` | Bucketed historical time-series aggregates | `by_source_type_bucket`, `by_source_type_bucket_size`, `by_source_bucket`, `by_type_bucket` |
 | `dailySummaries` | Precomputed daily aggregates | `by_user_category_date`, `by_user_date` |
@@ -53,10 +53,15 @@ canonical provider. See [Source-Aware Reads](/docs/guides/source-aware-reads).
 
 ### Events
 
+Garmin Move IQ events use `category: "activity"`. Recorded workouts use
+`category: "workout"`, so overlapping Move IQ records do not appear in workout
+queries. Upgrade existing rows with `migrateGarminMoveIQ` as described in the
+repository upgrade guide.
+
 Events are deduplicated at two levels:
 
 1. `externalId` when the provider gives a stable identifier
-2. `dataSourceId + startDatetime + endDatetime` as a second guardrail
+2. `dataSourceId + category + startDatetime + endDatetime` as a second guardrail
 
 ### Data points
 

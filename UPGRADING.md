@@ -1,5 +1,50 @@
 # Upgrading and Data Migrations
 
+## Version 2.0.0: Move IQ is detected activity
+
+Garmin Move IQ now uses the event category `activity`. Recorded Garmin workouts
+continue to use `workout`. The component preserves both streams without merging
+or deleting overlapping events. `HealthEvent` includes `ActivityEvent` and
+`EventCategory` includes `activity`; review exhaustive category switches.
+SDK ingestion continues to accept only workout and sleep events.
+
+Outgoing writes/deletions for detected activity now use `activity.upserted` and
+`activity.deleted`, with subject kind `activity`. Subscribe to `activity.*` if
+you need these signals; `workout.*` no longer includes new Move IQ writes.
+
+1. Update the dependency and deploy the expanded component schema/functions.
+2. Call `wearables.migrateGarminMoveIQ(ctx, { dryRun: true })` from an internal
+   administrative mutation, or run the component mutation with the Convex CLI.
+3. Repeat with `cursor: nextCursor` until `isDone` is true. Save the eligible count.
+4. Start again without a cursor and set `dryRun: false`. Process each page until
+   `isDone`. The page size defaults to 100 and must be an integer from 1 to 100.
+5. Run another complete dry-run. The eligible count must be zero. Verify workout
+   queries and `category: "activity"` queries for affected users.
+
+Example, from the host app backend (replace the component name if needed):
+
+```sh
+npx convex run --prod --component wearables events:migrateGarminMoveIQ '{"dryRun":true}'
+npx convex run --prod --component wearables events:migrateGarminMoveIQ '{"dryRun":false}'
+# For subsequent pages, pass the returned nextCursor as cursor.
+```
+
+The migration matches only legacy workout rows with a Move IQ type, a
+`garmin-moveiq-` external ID, and a Garmin data source. It preserves IDs, source
+names, timestamps, and all other fields. Creation-order pagination remains
+stable while categories change. Reruns are safe. New ingestion uses the new
+category, so late delivery cannot create another legacy row.
+
+The migration does not rewrite or resend historical outgoing webhook records.
+Receivers that stored Move IQ as workouts must reconcile their historical data
+separately. Until migration finishes, legacy rows can still appear in workout
+queries. No mobile OTA is needed when a host returns the same workout response
+shape and keeps activity events out of that response.
+
+After writing `activity` rows, do not downgrade to 1.x: its schema rejects those
+rows. Keep the expanded schema for rollback, or first reclassify activity rows
+and restore the old ingestion behavior in a coordinated maintenance operation.
+
 ## Version 1.0.0: deployable component and host Node action
 
 The component now deploys without Node-only component modules. Applications

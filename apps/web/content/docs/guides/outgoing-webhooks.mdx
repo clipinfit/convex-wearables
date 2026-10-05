@@ -11,6 +11,11 @@ This feature is different from live provider webhooks. Provider callbacks bring
 WHOOP, Polar, or Suunto data into the component. Outgoing webhooks notify a host
 callback or authorized receiver after normalized data commits.
 
+Detected activities such as Garmin Move IQ emit `activity.upserted` and
+`activity.deleted` with subject kind `activity`. Subscribe to `activity.*` to
+receive them. Recorded workouts continue to use `workout.*`. The Move IQ upgrade
+migration does not replay historical events.
+
 ## Architecture and guarantees
 
 ```text

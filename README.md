@@ -245,7 +245,9 @@ const wearables = new WearablesClient(components.wearables, config);
 | `getSyncStatus(ctx, { userId })` | Get sync status across all providers |
 | `disconnect(ctx, { userId, provider })` | Disconnect a provider (clears tokens, sets inactive) |
 
-#### Events (Workouts & Sleep)
+See [UPGRADING.md](./UPGRADING.md) for the bounded Garmin Move IQ migration in version 2.0.0.
+
+#### Events (Workouts, Sleep & Detected Activity)
 
 | Method | Description |
 |--------|-------------|
@@ -255,7 +257,7 @@ const wearables = new WearablesClient(components.wearables, config);
 | `getWorkoutEnrichment(ctx, { eventId })` | Get normalized laps, splits, lengths, sets, and zones |
 | `upsertWorkoutEnrichment(ctx, input)` | Replace normalized enrichment from a custom parser/provider |
 
-The `category` parameter is `"workout"` or `"sleep"`. Results are ordered by start time (newest first). Pagination uses cursor-based tokens returned in `nextCursor`.
+The `category` parameter is `"workout"`, `"sleep"`, or `"activity"`. Garmin Move IQ uses `"activity"` and stays separate from recorded workouts. Results are ordered by start time (newest first). Pagination uses cursor-based tokens returned in `nextCursor`.
 
 #### Time Series
 
@@ -754,7 +756,7 @@ export const getStoragePolicies = query({
 | `dataSources` | User + provider + device combinations | `by_user_provider`, `by_user_provider_device`, `by_connection` |
 | `dataPoints` | Time-series health metrics | `by_source_type_time`, `by_source_time`, `by_type_time` |
 | `timeSeriesRollups` | Bucketed historical time-series rollups | `by_source_type_bucket`, `by_source_type_bucket_size`, `by_source_bucket`, `by_type_bucket` |
-| `events` | Workouts and sleep sessions | `by_user_category_time`, `by_external_id`, `by_source_start_end` |
+| `events` | Workouts, sleep sessions, and detected activity | `by_user_category_time`, `by_external_id`, `by_source_start_end` |
 | `workoutSegments` | Normalized laps, splits, lengths, and strength sets | `by_event_kind_index`, `by_user_provider` |
 | `workoutZones` | Normalized heart-rate and power time-in-zone | `by_event_kind_zone`, `by_user_provider` |
 | `garminActivityFileJobs` | Ephemeral Garmin FIT processing inbox | `by_connection_status`, `by_activity`, `by_event_external_id`, `by_expiry` |

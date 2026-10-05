@@ -1,6 +1,6 @@
 {
   "name": "@clipin/convex-wearables",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Convex component for normalized wearable integrations and deterministic synthetic health data.",
   "license": "Apache-2.0",
   "homepage": "https://github.com/clipinfit/convex-wearables#readme",

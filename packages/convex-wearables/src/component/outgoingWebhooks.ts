@@ -20,6 +20,8 @@ export const WEARABLES_EVENT_TYPES = [
   "workout.upserted",
   "workout.enriched",
   "workout.deleted",
+  "activity.upserted",
+  "activity.deleted",
   "sleep.upserted",
   "sleep.deleted",
   "summary.upserted",
@@ -37,6 +39,7 @@ const EVENT_GROUPS = [
   "connection.*",
   "sync.*",
   "workout.*",
+  "activity.*",
   "sleep.*",
   "summary.*",
   "series.*",
@@ -147,7 +150,15 @@ export type CaptureOutgoingEventArgs = {
   userId: string;
   provider?: string;
   eventType: WearablesEventType;
-  subjectKind: "connection" | "sync" | "workout" | "sleep" | "summary" | "series" | "deletion";
+  subjectKind:
+    | "connection"
+    | "sync"
+    | "workout"
+    | "sleep"
+    | "activity"
+    | "summary"
+    | "series"
+    | "deletion";
   subjectId?: string;
   idempotencyKey: string;
   data: Record<string, unknown>;

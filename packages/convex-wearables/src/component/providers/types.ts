@@ -2,6 +2,8 @@
  * Provider-level types shared across all provider implementations.
  */
 
+import type { EventCategory } from "../../client/types";
+
 // ---------------------------------------------------------------------------
 // OAuth configuration per provider
 // ---------------------------------------------------------------------------
@@ -57,7 +59,7 @@ export interface ProviderCredentials {
 // ---------------------------------------------------------------------------
 
 export interface NormalizedEvent {
-  category: "workout" | "sleep";
+  category: EventCategory;
   type?: string;
   sourceName?: string;
   deviceModel?: string;

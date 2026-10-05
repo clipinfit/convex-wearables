@@ -30,7 +30,11 @@ export const connectionStatus = v.union(
 /**
  * Event category — top-level classification.
  */
-export const eventCategory = v.union(v.literal("workout"), v.literal("sleep"));
+export const eventCategory = v.union(
+  v.literal("workout"),
+  v.literal("sleep"),
+  v.literal("activity"),
+);
 
 /**
  * Sync job status.
