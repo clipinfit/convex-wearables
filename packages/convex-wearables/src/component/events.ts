@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { paginator } from "convex-helpers/server/pagination";
 import type { Doc, Id } from "./_generated/dataModel";
 import {
   type DatabaseReader,
@@ -10,7 +11,7 @@ import {
 import { dataSourceDocumentValidator } from "./dataSources";
 import { assertIngestionAllowed } from "./lifecycle";
 import { captureOutgoingEvent, outgoingEventFingerprint } from "./outgoingWebhooks";
-import { eventCategory, providerName } from "./schema";
+import schema, { eventCategory, providerName } from "./schema";
 
 type EventReadArgs = {
   userId: string;
@@ -699,10 +700,12 @@ export const migrateGarminMoveIQ = mutation({
       throw new Error("limit must be an integer from 1 to 100");
     }
     // Creation order stays stable when category changes, so pages do not skip rows.
-    const page = await ctx.db.query("events").paginate({
-      cursor: args.cursor ?? null,
-      numItems: limit,
-    });
+    const page = await paginator(ctx.db, schema)
+      .query("events")
+      .paginate({
+        cursor: args.cursor ?? null,
+        numItems: limit,
+      });
     let eligible = 0;
     let migrated = 0;
     for (const event of page.page) {
